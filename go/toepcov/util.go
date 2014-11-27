@@ -1,4 +1,4 @@
-package whog
+package toepcov
 
 func max(a, b int) int {
 	if a < b {

@@ -1,4 +1,4 @@
-package whog
+package toepcov
 
 //	"archive/tar"
 //	"encoding/json"

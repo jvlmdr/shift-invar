@@ -1,4 +1,4 @@
-package whog
+package toepcov
 
 import (
 	"bytes"

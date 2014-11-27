@@ -1,4 +1,4 @@
-package whog
+package toepcov
 
 type Count struct {
 	Band  int

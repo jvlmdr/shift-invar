@@ -1,4 +1,4 @@
-package whog
+package toepcov
 
 import (
 	"github.com/jvlmdr/go-cv/rimg64"

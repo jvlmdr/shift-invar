@@ -1,4 +1,4 @@
-package whog
+package toepcov
 
 // Interfaces to a stationary covariance as a matrix
 // without instantiating it.
