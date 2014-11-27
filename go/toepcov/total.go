@@ -16,6 +16,7 @@ type Total struct {
 }
 
 // Combine two totals.
+// Neither operand can be nil.
 func AddTotal(lhs, rhs *Total) *Total {
 	pixel := addPixel(lhs.MeanTotal, rhs.MeanTotal)
 	covar := AddCovar(lhs.CovarTotal, rhs.CovarTotal)
@@ -26,7 +27,14 @@ func AddTotal(lhs, rhs *Total) *Total {
 
 // Combine two totals.
 // One of the inputs will be modified.
+// If either operand is nil, then the other is returned.
 func AddTotalToEither(lhs, rhs *Total) *Total {
+	if rhs == nil {
+		return lhs
+	}
+	if lhs == nil {
+		return rhs
+	}
 	pixel := addPixel(lhs.MeanTotal, rhs.MeanTotal)
 	covar := AddCovarToEither(lhs.CovarTotal, rhs.CovarTotal)
 	count := AddCount(lhs.Count, rhs.Count)
