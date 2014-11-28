@@ -1,21 +1,25 @@
 package circcov
 
 import (
-	"github.com/jvlmdr/go-whog/whog"
 	"github.com/jvlmdr/lin-go/mat"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
 // g(du, dv) = sum_{a, b} x(a, b) x(a+du, a+dv)
 //
 // h(du, dv) = sum_{a, b} sum_{u, v} x(a+u, b+v) x(a+(u+du mod m), b+(v+dv mod n))
 
-func Matrix(g *whog.Covar, m, n int) *mat.Mat {
+// Matrix calls MatrixMode using Convex to form the circulant covariance.
+func Matrix(g *toepcov.Covar, m, n int) *mat.Mat {
 	return MatrixMode(g, m, n, Convex)
 }
 
-func MatrixMode(g *whog.Covar, m, n int, coeffs CoeffsFunc) *mat.Mat {
+// MatrixMode constructs the full circulant covariance matrix.
+// The manner in which the circulant covariance is formed is
+// determined by the coefficients function.
+func MatrixMode(g *toepcov.Covar, m, n int, coeffs CoeffsFunc) *mat.Mat {
 	c := g.Channels
-	A := mat.New(m*n*c, m*n*c)
+	s := mat.New(m*n*c, m*n*c)
 	// Populate matrix.
 	for u := 0; u < m; u++ {
 		for v := 0; v < n; v++ {
@@ -34,12 +38,12 @@ func MatrixMode(g *whog.Covar, m, n int, coeffs CoeffsFunc) *mat.Mat {
 
 							row := (u*n+v)*c + p
 							col := (i*n+j)*c + q
-							A.Set(row, col, h)
+							s.Set(row, col, h)
 						}
 					}
 				}
 			}
 		}
 	}
-	return A
+	return s
 }

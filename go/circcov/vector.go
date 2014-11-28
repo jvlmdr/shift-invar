@@ -1,10 +1,10 @@
 package circcov
 
 import (
+	"math"
+
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/lin-go/vec"
-
-	"math"
 )
 
 func plus(a, b *rimg64.Multi) *rimg64.Multi {

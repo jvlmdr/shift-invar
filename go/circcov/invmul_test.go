@@ -1,11 +1,11 @@
 package circcov
 
 import (
+	"testing"
+
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/lin-go/lapack"
 	"github.com/jvlmdr/lin-go/mat"
-
-	"testing"
 )
 
 // Checks that InvMul(Mul(.)) is identity.

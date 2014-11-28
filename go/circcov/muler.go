@@ -1,16 +1,17 @@
 package circcov
 
 import (
-	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/go-fftw/fftw"
-	"github.com/jvlmdr/go-whog/whog"
-
 	"fmt"
 	"math/cmplx"
+
+	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/go-fftw/fftw"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
-// Multiplies a circulant covariance matrix by an image.
+// Muler multiplies a circulant covariance matrix by multiple images.
 // Uses the FFT.
+// Pre-computes all that is possible.
 //
 // Stores O(c^2) FFTs (c is the number of channels).
 type Muler struct {
@@ -20,8 +21,9 @@ type Muler struct {
 	Width, Height, Channels int
 }
 
-// Takes k^2 transforms. O(mnk^2 log(mn))
-func (op *Muler) Init(g *whog.Covar, w, h int) {
+// Init does pre-computation for multiplying by the covariance matrix.
+// It takes k^2 transforms in O(mnk^2 log(mn)) time.
+func (op *Muler) Init(g *toepcov.Covar, w, h int) {
 	op.Width = w
 	op.Height = h
 	op.Channels = g.Channels
@@ -36,9 +38,10 @@ func (op *Muler) Init(g *whog.Covar, w, h int) {
 	}
 }
 
-// Solves mn factorizations of size kxk. O(mnk^2)
-// Takes k transforms and k inverse transforms. O(mnk log(mn))
-// Total time O(mnk(k+log(mn))).
+// Mul multiplies an image by the inverse circulant covariance matrix.
+// It solves mn factorizations of size kxk in O(mnk^2) time,
+// and takes k transforms and k inverse transforms in O(mnk log(mn)) time.
+// Total time is O(mnk(k+log(mn))).
 func (op *Muler) Mul(f *rimg64.Multi) *rimg64.Multi {
 	if f.Channels != op.Channels {
 		panic(fmt.Sprintf(
@@ -56,28 +59,29 @@ func (op *Muler) Mul(f *rimg64.Multi) *rimg64.Multi {
 
 	fHat := make([]*fftw.Array2, op.Channels)
 	for p := 0; p < op.Channels; p++ {
-		fHat[p] = dftImage(f.Channel(p), f.Width, f.Height)
+		fHat[p] = dftChannel(f, p, f.Width, f.Height)
 	}
 	xHat := make([]*fftw.Array2, op.Channels)
 	for p := 0; p < op.Channels; p++ {
 		xHat[p] = fftw.NewArray2(f.Width, f.Height)
 	}
 
-	N := complex(float64(f.Width)*float64(f.Height), 0)
+	n := float64(f.Width * f.Height)
 	for u := 0; u < f.Width; u++ {
 		for v := 0; v < f.Height; v++ {
 			for p := 0; p < f.Channels; p++ {
+				var total complex128
 				for q := 0; q < f.Channels; q++ {
-					delta := cmplx.Conj(op.GHat[p][q].At(u, v)) * fHat[q].At(u, v) / N
-					xHat[p].Set(u, v, xHat[p].At(u, v)+delta)
+					total += cmplx.Conj(op.GHat[p][q].At(u, v)) * fHat[q].At(u, v)
 				}
+				xHat[p].Set(u, v, total/complex(n, 0))
 			}
 		}
 	}
 
 	x := rimg64.NewMulti(f.Width, f.Height, f.Channels)
 	for p := 0; p < f.Channels; p++ {
-		x.SetChannel(p, idftImage(xHat[p], f.Width, f.Height))
+		idftToChannel(x, p, xHat[p])
 	}
 	return x
 }

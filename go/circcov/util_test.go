@@ -1,13 +1,13 @@
 package circcov
 
 import (
-	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/go-whog/whog"
-	"github.com/jvlmdr/lin-go/mat"
-
 	"fmt"
 	"math"
 	"math/rand"
+
+	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/lin-go/mat"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
 const eps = 1e-9
@@ -64,13 +64,13 @@ func isSymm(a mat.Const) bool {
 }
 
 // Generates random stationary covariance with appropriate symmetry.
-func randCovar(channels, bandwidth int) *whog.Covar {
+func randCovar(channels, bandwidth int) *toepcov.Covar {
 	// Make a random image.
 	f := randImage(4*bandwidth, 4*bandwidth, channels)
 	// Estimate covariance from image.
-	total := whog.Stats(f, bandwidth)
+	total := toepcov.Stats(f, bandwidth)
 	// Do not remove mean to ensure semidefinite.
-	return whog.Normalize(total, false).Covar
+	return toepcov.Normalize(total, false).Covar
 }
 
 func randImage(width, height, channels int) *rimg64.Multi {

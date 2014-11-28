@@ -1,18 +1,21 @@
 package circcov
 
 import (
+	"math/cmplx"
+
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-fftw/fftw"
-	"github.com/jvlmdr/go-whog/whog"
-
-	"math/cmplx"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
-func Mul(g *whog.Covar, f *rimg64.Multi) *rimg64.Multi {
+// Mul calls MulMode using Convex to obtain the circulant matrix.
+func Mul(g *toepcov.Covar, f *rimg64.Multi) *rimg64.Multi {
 	return MulMode(g, f, Convex)
 }
 
-func MulMode(g *whog.Covar, f *rimg64.Multi, coeffs CoeffsFunc) *rimg64.Multi {
+// MulMode computes the product of a circulant covariance matrix with an image.
+// The mode is determined by the coefficients function.
+func MulMode(g *toepcov.Covar, f *rimg64.Multi, coeffs CoeffsFunc) *rimg64.Multi {
 	c := g.Channels
 
 	gHat := make([][]*fftw.Array2, c)
@@ -25,28 +28,29 @@ func MulMode(g *whog.Covar, f *rimg64.Multi, coeffs CoeffsFunc) *rimg64.Multi {
 	}
 	fHat := make([]*fftw.Array2, c)
 	for p := 0; p < c; p++ {
-		fHat[p] = dftImage(f.Channel(p), f.Width, f.Height)
+		fHat[p] = dftChannel(f, p, f.Width, f.Height)
 	}
 	xHat := make([]*fftw.Array2, c)
 	for p := 0; p < c; p++ {
 		xHat[p] = fftw.NewArray2(f.Width, f.Height)
 	}
 
-	N := complex(float64(f.Width)*float64(f.Height), 0)
+	n := float64(f.Width * f.Height)
 	for u := 0; u < f.Width; u++ {
 		for v := 0; v < f.Height; v++ {
 			for p := 0; p < c; p++ {
+				var total complex128
 				for q := 0; q < c; q++ {
-					delta := cmplx.Conj(gHat[p][q].At(u, v)) * fHat[q].At(u, v) / N
-					xHat[p].Set(u, v, xHat[p].At(u, v)+delta)
+					total += cmplx.Conj(gHat[p][q].At(u, v)) * fHat[q].At(u, v)
 				}
+				xHat[p].Set(u, v, total/complex(n, 0))
 			}
 		}
 	}
 
 	x := rimg64.NewMulti(f.Width, f.Height, c)
 	for p := 0; p < c; p++ {
-		x.SetChannel(p, idftImage(xHat[p], f.Width, f.Height))
+		idftToChannel(x, p, xHat[p])
 	}
 	return x
 }

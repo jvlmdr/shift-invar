@@ -1,19 +1,19 @@
 package circcov
 
 import (
-	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/go-fftw/fftw"
-	"github.com/jvlmdr/go-whog/whog"
-	"github.com/jvlmdr/lin-go/clap"
-	"github.com/jvlmdr/lin-go/cmat"
-
 	"fmt"
 	"math/cmplx"
+
+	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/go-fftw/fftw"
+	"github.com/jvlmdr/lin-go/clap"
+	"github.com/jvlmdr/lin-go/cmat"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
-// Multiplies the inverse of a circulant covariance matrix by an image.
-// Uses the FFT and Cholesky factorization.
-//
+// InvMuler multiplies the inverse of a circulant covariance matrix by multiple images.
+// Uses the FFT and complex Cholesky factorization.
+// All possible pre-computation is performed in Init.
 // Stores one k x k factorization per pixel, where k is the number of channels.
 type InvMuler struct {
 	// Factorized matries.
@@ -23,10 +23,12 @@ type InvMuler struct {
 	Width, Height, Channels int
 }
 
-// Takes k^2 transforms. O(mnk^2 log(mn))
-// Computes mn factorizations of size kxk. O(mnk^3)
-// Total time O(mnk^2 (k+log(mn))).
-func (op *InvMuler) Init(g *whog.Covar, w, h int) error {
+// Init does pre-computation for multiplying by the inverse covariance matrix.
+// It takes k^2 transforms in O(mnk^2 log(mn)) time and
+// computes mn factorizations of size kxk in O(mnk^3) time.
+// Total time is O(mnk^2 (k+log(mn))).
+// Returns an error if any of the complex systems are not positive definite.
+func (op *InvMuler) Init(g *toepcov.Covar, w, h int) error {
 	op.Width = w
 	op.Height = h
 	op.Channels = g.Channels
@@ -69,9 +71,9 @@ func (op *InvMuler) Init(g *whog.Covar, w, h int) error {
 	return nil
 }
 
-// Solves mn factorizations of size kxk. O(mnk^2)
-// Takes k transforms and k inverse transforms. O(mnk log(mn))
-// Total time O(mnk(k+log(mn))).
+// Mul performs mn back-substitutions of size kxk in O(mnk^2) time and
+// takes k transforms and k inverse transforms in O(mnk log(mn)) time.
+// Total time is O(mnk(k+log(mn))).
 func (op *InvMuler) Mul(f *rimg64.Multi) *rimg64.Multi {
 	if f.Channels != op.Channels {
 		panic(fmt.Sprintf(
@@ -89,7 +91,7 @@ func (op *InvMuler) Mul(f *rimg64.Multi) *rimg64.Multi {
 
 	fHat := make([]*fftw.Array2, op.Channels)
 	for p := 0; p < op.Channels; p++ {
-		fHat[p] = dftImage(f.Channel(p), f.Width, f.Height)
+		fHat[p] = dftChannel(f, p, f.Width, f.Height)
 	}
 	xHat := make([]*fftw.Array2, op.Channels)
 	for p := 0; p < op.Channels; p++ {
@@ -117,7 +119,7 @@ func (op *InvMuler) Mul(f *rimg64.Multi) *rimg64.Multi {
 	// Take inverse transform of each channel.
 	x := rimg64.NewMulti(f.Width, f.Height, op.Channels)
 	for p := 0; p < op.Channels; p++ {
-		x.SetChannel(p, idftImage(xHat[p], f.Width, f.Height))
+		idftToChannel(x, p, xHat[p])
 	}
 	return x
 }

@@ -6,12 +6,16 @@ import (
 
 	"github.com/jvlmdr/go-cg/pcg"
 	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/go-whog/whog"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
-func ToeplitzInvMulPCG(g *whog.Covar, b, x *rimg64.Multi, tol float64, iter int, debug io.Writer) (*rimg64.Multi, error) {
+// ToeplitzInvMulPCG solves for x in S x = b
+// where S is the Toeplitz covariance matrix.
+// The solution is obtained using pre-conditioned conjugate gradient,
+// with a circulant preconditioner.
+func ToeplitzInvMulPCG(g *toepcov.Covar, b, x *rimg64.Multi, tol float64, iter int, debug io.Writer) (*rimg64.Multi, error) {
 	log.Println("ToeplitzInvMulPCG: init Muler")
-	var muler whog.MulerFFT
+	var muler toepcov.MulerFFT
 	muler.Init(g, b.Width, b.Height)
 	a := func(x []float64) []float64 {
 		f := &rimg64.Multi{x, b.Width, b.Height, b.Channels}

@@ -1,10 +1,10 @@
 package circcov
 
 import (
+	"testing"
+
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/lin-go/mat"
-
-	"testing"
 )
 
 func TestMul(t *testing.T) {
@@ -70,7 +70,7 @@ func TestMul_addLambdaI(t *testing.T) {
 	f := randImage(width, height, channels)
 	// Multiply in Fourier domain.
 	want := Mul(g, f)
-	want = plus(want, scale(lambda, f))
+	want = want.Plus(f.Scale(lambda))
 	g.AddLambdaI(lambda)
 	got := Mul(g, f)
 	if eq, msg := imagesEq(want, got); !eq {
