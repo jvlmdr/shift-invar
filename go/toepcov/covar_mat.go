@@ -1,6 +1,6 @@
 package toepcov
 
-// Interfaces to a stationary covariance as a matrix
+// CovarMatrix treats the Toeplitz covariance as a simple matrix
 // without instantiating it.
 type CovarMatrix struct {
 	Gamma  *Covar
@@ -8,11 +8,13 @@ type CovarMatrix struct {
 	Height int
 }
 
+// Dims returns the dimensions of the matrix.
 func (s CovarMatrix) Dims() (rows, cols int) {
 	n := s.Width * s.Height * s.Gamma.Channels
 	return n, n
 }
 
+// At accesses the element at row i and column j.
 func (s CovarMatrix) At(i, j int) float64 {
 	height := s.Height
 	channels := s.Gamma.Channels
@@ -34,7 +36,8 @@ func (s CovarMatrix) At(i, j int) float64 {
 	return s.Gamma.At(u-x, v-y, p, q)
 }
 
-// Efficient method for computing the squared Frobenius norm of the matrix.
+// SqrNorm is an efficient method for computing
+// the squared Frobenius norm of the matrix.
 func (s CovarMatrix) SqrNorm() float64 {
 	bandwidth := s.Gamma.Bandwidth
 	channels := s.Gamma.Channels
@@ -53,7 +56,8 @@ func (s CovarMatrix) SqrNorm() float64 {
 	return acc
 }
 
-// Efficient method for computing the trace of the matrix.
+// Trace is an efficient method for computing
+// the trace of the matrix.
 func (s CovarMatrix) Trace() float64 {
 	return s.Gamma.Trace(s.Width, s.Height)
 }

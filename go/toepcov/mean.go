@@ -5,12 +5,6 @@ import (
 	"github.com/jvlmdr/go-cv/rimg64"
 )
 
-func clonePixel(x []float64) []float64 {
-	y := make([]float64, len(x))
-	copy(y, x)
-	return y
-}
-
 // Panics if x and y have different number of channels.
 func addPixel(x, y []float64) []float64 {
 	// Ensure number of channels is consistent.
@@ -21,7 +15,7 @@ func addPixel(x, y []float64) []float64 {
 	return floats.AddTo(z, x, y)
 }
 
-// Subtracts stationary mean (constant per channel) from an image.
+// SubMean subtracts the same vector from all positions in an image.
 // Panics if numbers of channels do not match.
 func SubMean(x *rimg64.Multi, mu []float64) *rimg64.Multi {
 	if err := errIfNumChansNotEq(x.Channels, len(mu)); err != nil {
@@ -38,6 +32,7 @@ func SubMean(x *rimg64.Multi, mu []float64) *rimg64.Multi {
 	return y
 }
 
+// ConstImage constructs an image with the same vector at every position.
 func ConstImage(width, height int, x []float64) *rimg64.Multi {
 	f := rimg64.NewMulti(width, height, len(x))
 	for i := 0; i < f.Width; i++ {

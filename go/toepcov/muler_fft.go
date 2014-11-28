@@ -9,8 +9,9 @@ import (
 	"github.com/jvlmdr/go-fftw/fftw"
 )
 
-// Multiplies a covariance matrix by image of a specific dimension using the FFT.
-//
+// MulerFFT pre-computes all possible transforms,
+// then can be used to multiply a covariance matrix
+// by several images of the same size.
 // Stores O(c^2) FFTs (c is the number of channels).
 type MulerFFT struct {
 	// Fourier transform of filters corresponding to cross-channel correlations.
@@ -21,6 +22,7 @@ type MulerFFT struct {
 	M, N int
 }
 
+// Init transforms each channel pair (p, q) of the covariance matrix.
 func (op *MulerFFT) Init(g *Covar, w, h int) {
 	op.Width = w
 	op.Height = h
@@ -44,6 +46,8 @@ func (op *MulerFFT) Init(g *Covar, w, h int) {
 	}
 }
 
+// Mul computes the product of the covariance matrix with the image f.
+// Init must be called before Mul.
 func (op *MulerFFT) Mul(f *rimg64.Multi) *rimg64.Multi {
 	if f.Channels != len(op.GHat) {
 		panic(fmt.Sprintf(
@@ -60,11 +64,11 @@ func (op *MulerFFT) Mul(f *rimg64.Multi) *rimg64.Multi {
 	}
 
 	// Normalization constant.
-	N := float64(op.M) * float64(op.N)
+	n := float64(op.M) * float64(op.N)
 	// Transform of input image.
 	fHat := make([]*fftw.Array2, f.Channels)
 	for p := 0; p < f.Channels; p++ {
-		fHat[p] = dftImage(f.Channel(p), op.M, op.N)
+		fHat[p] = dftChannel(f, p, op.M, op.N)
 	}
 	// Transform of result.
 	zHat := make([]*fftw.Array2, f.Channels)
@@ -76,7 +80,7 @@ func (op *MulerFFT) Mul(f *rimg64.Multi) *rimg64.Multi {
 			// Multiply in Fourier domain and add to result.
 			for i := 0; i < op.M; i++ {
 				for j := 0; j < op.N; j++ {
-					delta := complex(1/N, 0) * op.GHat[q][p].At(i, j) * fHat[q].At(i, j)
+					delta := op.GHat[q][p].At(i, j) * fHat[q].At(i, j)
 					zHat[p].Set(i, j, zHat[p].At(i, j)+delta)
 				}
 			}
@@ -85,7 +89,12 @@ func (op *MulerFFT) Mul(f *rimg64.Multi) *rimg64.Multi {
 	// Take inverse transform of each channel.
 	z := rimg64.NewMulti(f.Width, f.Height, f.Channels)
 	for p := 0; p < f.Channels; p++ {
-		z.SetChannel(p, idftImage(zHat[p], f.Width, f.Height))
+		for i := 0; i < op.M; i++ {
+			for j := 0; j < op.N; j++ {
+				zHat[p].Set(i, j, complex(1/n, 0)*zHat[p].At(i, j))
+			}
+		}
+		idftToChannel(z, p, zHat[p])
 	}
 	return z
 }

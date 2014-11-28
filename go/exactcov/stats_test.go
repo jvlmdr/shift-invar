@@ -1,16 +1,17 @@
-package toepcov
+package exactcov
 
 import (
 	"testing"
 
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/lin-go/lapack"
+	"github.com/jvlmdr/shift-invar/go/imcov"
 )
 
-func TestExactCount(t *testing.T) {
+func TestCount(t *testing.T) {
 	M, N := 5, 3
 	m, n := 3, 2
-	count := ExactCountOf(M, N, m, n)
+	count := CovarCount(M, N, m, n)
 	want := int64(M-m+1) * int64(N-n+1)
 	got := count.Export()
 	if want != got {
@@ -18,10 +19,10 @@ func TestExactCount(t *testing.T) {
 	}
 }
 
-func TestExactCount_Subset(t *testing.T) {
+func TestCount_Subset(t *testing.T) {
 	M, N := 5, 3
 	m, n := 3, 2
-	count := ExactCountOf(M, N, m, n)
+	count := CovarCount(M, N, m, n)
 	m, n = 1, 2
 	count = count.Subset(m, n)
 	want := int64(M-m+1) * int64(N-n+1)
@@ -31,7 +32,7 @@ func TestExactCount_Subset(t *testing.T) {
 	}
 }
 
-func TestExactStats_Normalize(t *testing.T) {
+func TestStats_Normalize(t *testing.T) {
 	// Dimension of image.
 	M, N := 20, 15
 	// Dimension of template.
@@ -42,11 +43,11 @@ func TestExactStats_Normalize(t *testing.T) {
 
 	// Compute mean and covariance naively.
 	count := (M - m + 1) * (N - n + 1)
-	naiveMean := ExactMeanNaive(im, m, n).Scale(1 / float64(count))
-	naiveCovar := ExactCovarNaive(im, m, n).Scale(1 / float64(count))
+	naiveMean := imcov.MeanSum(im, m, n).Scale(1 / float64(count))
+	naiveCovar := imcov.CovarSum(im, m, n).Scale(1 / float64(count))
 
 	// Compute using Normalize().
-	fastMean, fastCovar := ExactStatsOf(im, m, n, max(m, n)-1).Normalize()
+	fastMean, fastCovar := Stats(im, m, n, max(m, n)-1).Normalize()
 
 	// Compare results.
 	testImageEq(t, naiveMean, fastMean)
@@ -64,19 +65,19 @@ func TestFullCovar_Center(t *testing.T) {
 
 	count := (M - m + 1) * (N - n + 1)
 	// Compute mean naively.
-	mean := ExactMeanNaive(im, m, n).Scale(1 / float64(count))
+	mean := imcov.MeanSum(im, m, n).Scale(1 / float64(count))
 	// Compute covar naively with mean subtracted, then normalize.
-	pre := exactCovarNaiveMean(im, mean).Scale(1 / float64(count))
+	pre := covarSumCenter(im, mean).Scale(1 / float64(count))
 
 	// Compute covar without subtracting mean then normalize.
-	post := ExactCovarNaive(im, m, n).Scale(1 / float64(count))
-	//_, fast := ExactStatsOf(im, m, n, max(m, n)-1).Normalize()
+	post := imcov.CovarSum(im, m, n).Scale(1 / float64(count))
+	//_, fast := Stats(im, m, n, max(m, n)-1).Normalize()
 	post = post.Center(mean)
 
 	testFullCovarEq(t, pre, post)
 }
 
-func TestExactCovar_Center_PSD(t *testing.T) {
+func TestCovar_Center_PSD(t *testing.T) {
 	// Dimension of image.
 	M, N := 20, 15
 	// Dimension of template.
@@ -85,7 +86,7 @@ func TestExactCovar_Center_PSD(t *testing.T) {
 	k := 3
 	im := randImage(M, N, k)
 
-	mean, covar := ExactStatsOf(im, m, n, max(m, n)-1).Normalize()
+	mean, covar := Stats(im, m, n, max(m, n)-1).Normalize()
 	// Subtract mu*mu'.
 	centered := covar.Center(mean)
 	// Give some tolerance.
@@ -102,13 +103,13 @@ func TestExactCovar_Center_PSD(t *testing.T) {
 
 // Computes covariance naively from all windows in one image with mean removed.
 // Returns non-normalized covariance.
-func exactCovarNaiveMean(im, mean *rimg64.Multi) *FullCovar {
+func covarSumCenter(im, mean *rimg64.Multi) *imcov.Covar {
 	width, height := mean.Width, mean.Height
 	if im.Width < width || im.Height < height {
 		return nil
 	}
 
-	cov := NewFullCovar(width, height, im.Channels)
+	cov := imcov.NewCovar(width, height, im.Channels)
 	for a := 0; a < im.Width-width+1; a++ {
 		for b := 0; b < im.Height-height+1; b++ {
 			for u := 0; u < width; u++ {

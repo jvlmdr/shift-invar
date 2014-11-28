@@ -1,4 +1,4 @@
-package toepcov
+package exactcov
 
 import (
 	"image"
@@ -7,22 +7,24 @@ import (
 
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-fftw/fftw"
+	"github.com/jvlmdr/shift-invar/go/imcov"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
 // Necessary data to construct a covariance matrix.
 // Can also be sub-matrixed.
-type ExactCovar struct {
+type Covar struct {
 	Width     int
 	Height    int
 	Channels  int
 	Bandwidth int
-	Toeplitz  *Covar
-	Sides     *sideCovar
-	Corners   *cornerCovar
+	Toeplitz  *toepcov.Covar
+	Sides     *SideCovar
+	Corners   *CornerCovar
 }
 
-func (cov *ExactCovar) Clone() *ExactCovar {
-	return &ExactCovar{
+func (cov *Covar) Clone() *Covar {
+	return &Covar{
 		cov.Width, cov.Height, cov.Channels, cov.Bandwidth,
 		cov.Toeplitz.Clone(),
 		cov.Sides.Clone(),
@@ -30,13 +32,13 @@ func (cov *ExactCovar) Clone() *ExactCovar {
 	}
 }
 
-func (cov *ExactCovar) Subset(m, n, band int) *ExactCovar {
+func (cov *Covar) Subset(m, n, band int) *Covar {
 	if m > cov.Width || n > cov.Height || band > cov.Bandwidth {
 		panic("not a subset")
 	}
 
 	k := cov.Channels
-	dst := &ExactCovar{Width: m, Height: n, Channels: k, Bandwidth: band}
+	dst := &Covar{Width: m, Height: n, Channels: k, Bandwidth: band}
 	dst.Toeplitz = cov.Toeplitz.CloneBandwidth(band)
 	dst.Sides = cov.Sides.Subset(m, n)
 	dst.Corners = cov.Corners.Subset(m, n)
@@ -44,9 +46,9 @@ func (cov *ExactCovar) Subset(m, n, band int) *ExactCovar {
 }
 
 // Flattens the components into a single un-normalized matrix.
-func (cov *ExactCovar) Export() *FullCovar {
+func (cov *Covar) Export() *imcov.Covar {
 	m, n, k := cov.Width, cov.Height, cov.Channels
-	a := NewFullCovar(m, n, k)
+	a := imcov.NewCovar(m, n, k)
 	for u := 0; u < m; u++ {
 		for v := 0; v < n; v++ {
 			for p := 0; p < k; p++ {
@@ -67,38 +69,38 @@ func (cov *ExactCovar) Export() *FullCovar {
 	return a
 }
 
-func (a *ExactCovar) Plus(b *ExactCovar) *ExactCovar {
+func (a *Covar) Plus(b *Covar) *Covar {
 	if a.Width != b.Width || a.Height != b.Height || a.Channels != b.Channels || a.Bandwidth != b.Bandwidth {
 		panic("dimensions are not the same")
 	}
 	log.Println("add covar: Toeplitz")
-	tplz := AddCovar(a.Toeplitz, b.Toeplitz)
+	tplz := toepcov.AddCovar(a.Toeplitz, b.Toeplitz)
 	log.Println("add covar: sides")
 	sides := a.Sides.Plus(b.Sides)
 	log.Println("add covar: corners")
 	corners := a.Corners.Plus(b.Corners)
-	return &ExactCovar{a.Width, a.Height, a.Channels, a.Bandwidth, tplz, sides, corners}
+	return &Covar{a.Width, a.Height, a.Channels, a.Bandwidth, tplz, sides, corners}
 }
 
 // Returns non-normalized covariance.
-func ExactCovarOf(im *rimg64.Multi, m, n, band int) *ExactCovar {
+func CovarSum(im *rimg64.Multi, m, n, band int) *Covar {
 	k := im.Channels
 	// Get stationary part.
 	log.Println("compute covar: Toeplitz")
-	tplz := covarStatsFFT(im, band)
+	tplz := toepcov.CovarSumFFT(im, band)
 	// Get non-stationary part.
 	log.Println("compute covar: sides")
-	sides := sideCovarOf(im, m, n)
+	sides := SideCovarSum(im, m, n)
 	log.Println("compute covar: corners")
-	corners := cornerCovarOf(im, m, n)
-	return &ExactCovar{m, n, k, band, tplz, sides, corners}
+	corners := CornerCovarSum(im, m, n)
+	return &Covar{m, n, k, band, tplz, sides, corners}
 }
 
 // Corners[i][j].At(u, v, du, dv, p, q) gives
 // sum over a and b of x_p(a, b) + x_q(a+du, v+dv).
 // i = 0 for a in 0 to u-1, i = 1 for a in M-m+u+1 to M-1.
 // j = 0 for b in 0 to v-1, j = 1 for b in N-n+v+1 to N-1.
-func cornerCovarOf(im *rimg64.Multi, m, n int) *cornerCovar {
+func CornerCovarSum(im *rimg64.Multi, m, n int) *CornerCovar {
 	M, N, k := im.Width, im.Height, im.Channels
 	cov := newCornerCovar(m, n, k)
 
@@ -168,7 +170,7 @@ func cornerCovarOf(im *rimg64.Multi, m, n int) *cornerCovar {
 
 // Sides[0][i].At(v, du, dv, p, q) defined for v = 0, ..., n-1.
 // Sides[1][i].At(u, du, dv, p, q) defined for u = 0, ..., m-1.
-func sideCovarOf(im *rimg64.Multi, m, n int) *sideCovar {
+func SideCovarSum(im *rimg64.Multi, m, n int) *SideCovar {
 	M, N, k := im.Width, im.Height, im.Channels
 	cov := newSideCovar(m, n, k)
 
@@ -278,23 +280,23 @@ type oneCornerCovar struct {
 	Elems [][][][][][]float64
 }
 
-type cornerCovar struct {
+type CornerCovar struct {
 	Width    int
 	Height   int
 	Channels int
-	Elems    [2][2]*FullCovar
+	Elems    [2][2]*imcov.Covar
 }
 
-func newCornerCovar(m, n, k int) *cornerCovar {
-	cov := &cornerCovar{Width: m, Height: n, Channels: k}
-	cov.Elems[0][0] = NewFullCovar(m, n, k)
-	cov.Elems[1][0] = NewFullCovar(m, n, k)
-	cov.Elems[0][1] = NewFullCovar(m, n, k)
-	cov.Elems[1][1] = NewFullCovar(m, n, k)
+func newCornerCovar(m, n, k int) *CornerCovar {
+	cov := &CornerCovar{Width: m, Height: n, Channels: k}
+	cov.Elems[0][0] = imcov.NewCovar(m, n, k)
+	cov.Elems[1][0] = imcov.NewCovar(m, n, k)
+	cov.Elems[0][1] = imcov.NewCovar(m, n, k)
+	cov.Elems[1][1] = imcov.NewCovar(m, n, k)
 	return cov
 }
 
-func (cov *cornerCovar) At(u, v, p, i, j, q int) float64 {
+func (cov *CornerCovar) At(u, v, p, i, j, q int) float64 {
 	var s float64
 	s += cov.Elems[0][0].At(u, v, p, i, j, q)
 	s += cov.Elems[1][0].At(u, v, p, i, j, q)
@@ -303,7 +305,7 @@ func (cov *cornerCovar) At(u, v, p, i, j, q int) float64 {
 	return s
 }
 
-func (cov *cornerCovar) Clone() *cornerCovar {
+func (cov *CornerCovar) Clone() *CornerCovar {
 	m, n, k := cov.Width, cov.Height, cov.Channels
 	dst := newCornerCovar(m, n, k)
 	for p := 0; p < k; p++ {
@@ -325,7 +327,7 @@ func (cov *cornerCovar) Clone() *cornerCovar {
 	return dst
 }
 
-func (cov *cornerCovar) Subset(m, n int) *cornerCovar {
+func (cov *CornerCovar) Subset(m, n int) *CornerCovar {
 	// Previous (larger) width and height.
 	M, N := cov.Width, cov.Height
 	if m > M || n > N {
@@ -353,7 +355,7 @@ func (cov *cornerCovar) Subset(m, n int) *cornerCovar {
 	return dst
 }
 
-func (a *cornerCovar) Plus(b *cornerCovar) *cornerCovar {
+func (a *CornerCovar) Plus(b *CornerCovar) *CornerCovar {
 	if a.Width != b.Width || a.Height != b.Height || a.Channels != b.Channels {
 		panic("dimensions are not the same")
 	}
@@ -421,15 +423,15 @@ func (t *oneSideCovar) Set(i, du, dv, p, q int, x float64) {
 	t.Elems[i][t.Width-1+du][t.Height-1+dv][p][q] = x
 }
 
-type sideCovar struct {
+type SideCovar struct {
 	Width    int
 	Height   int
 	Channels int
 	Elems    [2][2]*oneSideCovar
 }
 
-func newSideCovar(m, n, k int) *sideCovar {
-	cov := &sideCovar{Width: m, Height: n, Channels: k}
+func newSideCovar(m, n, k int) *SideCovar {
+	cov := &SideCovar{Width: m, Height: n, Channels: k}
 	cov.Elems[0][0] = newOneSideCovar(n, m, n, k)
 	cov.Elems[0][1] = newOneSideCovar(n, m, n, k)
 	cov.Elems[1][0] = newOneSideCovar(m, m, n, k)
@@ -437,7 +439,7 @@ func newSideCovar(m, n, k int) *sideCovar {
 	return cov
 }
 
-func (cov *sideCovar) At(u, v, du, dv, p, q int) float64 {
+func (cov *SideCovar) At(u, v, du, dv, p, q int) float64 {
 	var s float64
 	s += cov.Elems[0][0].At(v, du, dv, p, q)
 	s += cov.Elems[0][1].At(v, du, dv, p, q)
@@ -446,7 +448,7 @@ func (cov *sideCovar) At(u, v, du, dv, p, q int) float64 {
 	return s
 }
 
-func (cov *sideCovar) Clone() *sideCovar {
+func (cov *SideCovar) Clone() *SideCovar {
 	m, n, k := cov.Width, cov.Height, cov.Channels
 	dst := newSideCovar(m, n, k)
 	for p := 0; p < k; p++ {
@@ -468,7 +470,7 @@ func (cov *sideCovar) Clone() *sideCovar {
 	return dst
 }
 
-func (cov *sideCovar) Subset(m, n int) *sideCovar {
+func (cov *SideCovar) Subset(m, n int) *SideCovar {
 	// Previous (larger) width and height.
 	M, N := cov.Width, cov.Height
 	if m > M || n > N {
@@ -496,7 +498,7 @@ func (cov *sideCovar) Subset(m, n int) *sideCovar {
 	return dst
 }
 
-func (a *sideCovar) Plus(b *sideCovar) *sideCovar {
+func (a *SideCovar) Plus(b *SideCovar) *SideCovar {
 	if a.Width != b.Width || a.Height != b.Height || a.Channels != b.Channels {
 		panic("dimensions are not the same")
 	}
@@ -533,34 +535,4 @@ func (a *sideCovar) Plus(b *sideCovar) *sideCovar {
 		}
 	}
 	return dst
-}
-
-// Computes covariance naively from all windows in one image.
-// Covariance is not normalized.
-func ExactCovarNaive(im *rimg64.Multi, width, height int) *FullCovar {
-	if im.Width < width || im.Height < height {
-		return nil
-	}
-
-	cov := NewFullCovar(width, height, im.Channels)
-	for a := 0; a < im.Width-width+1; a++ {
-		for b := 0; b < im.Height-height+1; b++ {
-			for u := 0; u < width; u++ {
-				for v := 0; v < height; v++ {
-					for p := 0; p < im.Channels; p++ {
-						for i := 0; i < width; i++ {
-							for j := 0; j < height; j++ {
-								for q := 0; q < im.Channels; q++ {
-									uvp := im.At(a+u, b+v, p)
-									ijq := im.At(a+i, b+j, q)
-									cov.AddAt(u, v, p, i, j, q, uvp*ijq)
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return cov
 }

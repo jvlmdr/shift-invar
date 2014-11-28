@@ -16,7 +16,17 @@ func TestDecodeTotalCSV(t *testing.T) {
 	if err := EncodeTotalCSV(&b, want); err != nil {
 		t.Fatal("encode:", err)
 	}
-	got, err := DecodeTotalCSV(bytes.NewReader(b.Bytes()))
+	gotChans, gotBand, err := DecodeTotalSizeCSV(bytes.NewReader(b.Bytes()))
+	if err != nil {
+		t.Fatal("decode size:", err)
+	}
+	if gotChans != chans {
+		t.Fatalf("different number of channels: want %d, got %d", chans, gotChans)
+	}
+	if gotBand != band {
+		t.Fatalf("different bandwidth: want %d, got %d", band, gotBand)
+	}
+	got, err := DecodeTotalCSV(bytes.NewReader(b.Bytes()), chans, band)
 	if err != nil {
 		t.Fatal("decode:", err)
 	}

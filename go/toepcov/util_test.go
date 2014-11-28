@@ -1,14 +1,15 @@
 package toepcov
 
 import (
-	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/lin-go/lapack"
-	"github.com/jvlmdr/lin-go/mat"
-
 	"math"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/lin-go/lapack"
+	"github.com/jvlmdr/lin-go/mat"
+	"github.com/jvlmdr/shift-invar/go/imcov"
 )
 
 const eps = 1e-9
@@ -50,6 +51,12 @@ func testMatEq(t *testing.T, want, got mat.Const) {
 func randCovar(channels, bandwidth int) *Covar {
 	f := randImage(4*bandwidth, 4*bandwidth, channels)
 	return covarFFT(f, bandwidth)
+}
+
+func covarFFT(f *rimg64.Multi, b int) *Covar {
+	sum := CovarSumFFT(f, b)
+	count := CovarCount(f.Width, f.Height, b)
+	return normCovar(sum, count)
 }
 
 func TestRandomCovar(t *testing.T) {
@@ -128,7 +135,7 @@ func timeFunc(f func()) time.Duration {
 	return time.Since(t)
 }
 
-func testFullCovarEq(t *testing.T, want, got *FullCovar) {
+func testFullCovarEq(t *testing.T, want, got *imcov.Covar) {
 	if want.Width != got.Width || want.Height != got.Height {
 		t.Fatalf("sizes differ: want %dx%d, got %dx%d", want.Width, want.Height, got.Width, got.Height)
 	}

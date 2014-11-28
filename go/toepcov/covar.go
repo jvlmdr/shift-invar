@@ -7,7 +7,9 @@ import (
 	"github.com/jvlmdr/lin-go/mat"
 )
 
-// Describes a stationary covariance matrix.
+// Covar describes a Toeplitz covariance matrix.
+// 	x, y in [-Bandwidth, Bandwidth]
+// 	p, q in [0, Channels)
 type Covar struct {
 	Channels  int
 	Bandwidth int
@@ -15,6 +17,7 @@ type Covar struct {
 	Gamma [][][][]float64
 }
 
+// NewCovar allocates a new Toeplitz covariance matrix.
 func NewCovar(channels, bandwidth int) *Covar {
 	n := 2*bandwidth + 1
 
@@ -31,34 +34,34 @@ func NewCovar(channels, bandwidth int) *Covar {
 	return &Covar{channels, bandwidth, gamma}
 }
 
-// x, y in [-Bandwidth, Bandwidth]
-// p, q in [0, Channels)
+// At gives the covariance of a pixel in channel p
+// with another at a relative displacement of (x, y) in channel q.
 func (cov *Covar) At(x, y, p, q int) float64 {
 	b := cov.Bandwidth
 	return cov.Gamma[b+x][b+y][p][q]
 }
 
-// x, y in [-Bandwidth, Bandwidth]
-// p, q in [0, Channels)
+// Set modifies the covariance of a pixel pair.
 func (cov *Covar) Set(x, y, p, q int, v float64) {
 	b := cov.Bandwidth
 	cov.Gamma[b+x][b+y][p][q] = v
 }
 
-// Creates a copy.
+// Clone creates a copy of the covariance matrix.
 func (src *Covar) Clone() *Covar {
 	dst := NewCovar(src.Channels, src.Bandwidth)
 	src.CopyTo(dst)
 	return dst
 }
 
-// Creates a copy with the specified bandwidth.
+// CloneBandwidth creates a copy with the specified bandwidth.
 func (src *Covar) CloneBandwidth(bandwidth int) *Covar {
 	dst := NewCovar(src.Channels, bandwidth)
 	src.CopyTo(dst)
 	return dst
 }
 
+// CopyTo populates another covariance matrix with the same values.
 func (src *Covar) CopyTo(dst *Covar) error {
 	if src.Channels != dst.Channels {
 		return errors.New("Dimension of covariances differs")
@@ -79,7 +82,7 @@ func (src *Covar) CopyTo(dst *Covar) error {
 	return nil
 }
 
-// Instantiates the full whc x whc covariance matrix.
+// Matrix instantiates the full whc x whc covariance matrix.
 // w, h and c are the width, height and number of channels.
 func (g *Covar) Matrix(width, height int) *mat.Mat {
 	var (
@@ -112,7 +115,7 @@ func (g *Covar) Matrix(width, height int) *mat.Mat {
 	return S
 }
 
-// Computes the trace of g.Matrix(width, height).
+// Trace computes the trace of g.Matrix(width, height).
 // Takes O(c) time, where c is the number of channels.
 func (g *Covar) Trace(width, height int) float64 {
 	var tr float64
@@ -122,14 +125,18 @@ func (g *Covar) Trace(width, height int) float64 {
 	return tr * float64(width) * float64(height)
 }
 
-// Adds scaled identity to covariance matrix.
+// AddLambdaI adds a scaled identity to the covariance matrix.
+// It modifies the matrix.
 func (g *Covar) AddLambdaI(lambda float64) {
 	for k := 0; k < g.Channels; k++ {
 		g.Set(0, 0, k, k, g.At(0, 0, k, k)+lambda)
 	}
 }
 
-// Subtracts mu mu' from covariance matrix.
+// Center subtracts the mean from the covariance matrix.
+// It computes:
+// 	cov - mu mu'
+// It modifies the matrix.
 func (g *Covar) Center(mu []float64) {
 	// Subtract mu mu'.
 	for du := -g.Bandwidth; du <= g.Bandwidth; du++ {
@@ -144,48 +151,56 @@ func (g *Covar) Center(mu []float64) {
 	}
 }
 
-// Returns the sum of two covariance matrices.
+// AddCovar returns the sum of two covariance matrices.
 // If one has greater bandwidth than the other,
-// the larger bandwidth is adopted.
-// Does not modify either input.
+// then the larger bandwidth is adopted.
+// Allocates memory for the result and does not modify either input.
 func AddCovar(lhs, rhs *Covar) *Covar {
-	return addCovar(lhs, rhs, false)
+	if rhs.Bandwidth > lhs.Bandwidth {
+		// Ensure that lhs has the larger bandwidth.
+		lhs, rhs = rhs, lhs
+	}
+	lhs = lhs.Clone()
+	addCovarTo(lhs, rhs)
+	return lhs
 }
 
-// Returns the sum of two covariance matrices.
+// AddCovarToEither returns the sum of two covariance matrices.
 // If one has greater bandwidth than the other,
 // the larger bandwidth is adopted.
 // Could modify either input.
+// If either operand is nil, returns the other one.
 func AddCovarToEither(lhs, rhs *Covar) *Covar {
-	return addCovar(lhs, rhs, true)
+	if rhs == nil {
+		return lhs
+	}
+	if lhs == nil {
+		return rhs
+	}
+	if rhs.Bandwidth > lhs.Bandwidth {
+		// Ensure that lhs has the larger bandwidth.
+		lhs, rhs = rhs, lhs
+	}
+	addCovarTo(lhs, rhs)
+	return lhs
 }
 
-func addCovar(lhs, rhs *Covar, mutate bool) *Covar {
+// lhs <- lhs + rhs
+// lhs must have bandwidth greater than or equal to that of rhs.
+func addCovarTo(lhs, rhs *Covar) {
 	// Ensure number of channels is consistent.
 	if err := errIfNumChansNotEq(lhs.Channels, rhs.Channels); err != nil {
 		panic(err)
 	}
-
-	// Swap pointers such that lhs.Bandwidth >= rhs.Bandwidth.
-	if lhs.Bandwidth < rhs.Bandwidth {
-		lhs, rhs = rhs, lhs
-	}
-	dst := lhs
-	if !mutate {
-		dst = dst.Clone()
-	}
-
-	// Add values and counts.
 	for i := -rhs.Bandwidth; i <= rhs.Bandwidth; i++ {
 		for j := -rhs.Bandwidth; j <= rhs.Bandwidth; j++ {
-			for p := 0; p < dst.Channels; p++ {
-				for q := 0; q < dst.Channels; q++ {
-					dst.Set(i, j, p, q, dst.At(i, j, p, q)+rhs.At(i, j, p, q))
+			for p := 0; p < lhs.Channels; p++ {
+				for q := 0; q < lhs.Channels; q++ {
+					lhs.Set(i, j, p, q, lhs.At(i, j, p, q)+rhs.At(i, j, p, q))
 				}
 			}
 		}
 	}
-	return dst
 }
 
 // Downsample takes every n-th sample in x and y.

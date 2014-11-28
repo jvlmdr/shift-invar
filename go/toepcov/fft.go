@@ -1,25 +1,44 @@
 package toepcov
 
 import (
-	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/go-fftw/fftw"
-
 	"fmt"
 	"log"
 	"math"
+	"math/cmplx"
+
+	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/go-fftw/fftw"
 )
 
-func copyImageToArray(dst *fftw.Array2, src *rimg64.Multi, p int) {
+// Copies one channel of an image into an FFT array.
+// The image is copied into the top-left corner.
+// Any extra space is filled with zeros.
+func copyChannelTo(dst *fftw.Array2, src *rimg64.Multi, channel int) {
 	m, n := dst.Dims()
 	w, h := src.Width, src.Height
-	// Copy.
 	for i := 0; i < m; i++ {
 		for j := 0; j < n; j++ {
+			var val complex128
 			if i < w && j < h {
-				dst.Set(i, j, complex(src.At(i, j, p), 0))
-			} else {
-				dst.Set(i, j, 0)
+				val = complex(src.At(i, j, channel), 0)
 			}
+			dst.Set(i, j, val)
+		}
+	}
+}
+
+// Copies the real part of an FFT array into one channel of an image.
+// The image is copied into the top-left corner.
+// Any extra space is filled with zeros.
+func copyRealToChannel(dst *rimg64.Multi, channel int, src *fftw.Array2) {
+	m, n := src.Dims()
+	for i := 0; i < dst.Width; i++ {
+		for j := 0; j < dst.Height; j++ {
+			var val float64
+			if i < m && j < n {
+				val = real(src.At(i, j))
+			}
+			dst.Set(i, j, channel, val)
 		}
 	}
 }
@@ -28,51 +47,28 @@ func copyImageToArray(dst *fftw.Array2, src *rimg64.Multi, p int) {
 //
 // The image is copied into the top-left corner.
 // Any extra space is filled with zeros.
-func dftImage(src *rimg64.Image, m, n int) *fftw.Array2 {
+func dftChannel(src *rimg64.Multi, channel int, m, n int) *fftw.Array2 {
 	dst := fftw.NewArray2(m, n)
-	dftImageTo(dst, src)
+	copyChannelTo(dst, src, channel)
+	fftw.FFT2To(dst, dst)
 	return dst
-}
-
-// Copies an image into an FFT array and computes the forward transform.
-//
-// The image is copied into the top-left corner.
-// Any extra space is filled with zeros.
-func dftImageTo(dst *fftw.Array2, src *rimg64.Image) {
-	m, n := dst.Dims()
-	w, h := src.Size().X, src.Size().Y
-	// Copy.
-	for i := 0; i < m; i++ {
-		for j := 0; j < n; j++ {
-			if i < w && j < h {
-				dst.Set(i, j, complex(src.At(i, j), 0))
-			} else {
-				dst.Set(i, j, 0)
-			}
-		}
-	}
-	// Forward transform in-place.
-	plan := fftw.NewPlan2(dst, dst, fftw.Forward, fftw.Estimate)
-	defer plan.Destroy()
-	plan.Execute()
 }
 
 // Takes the 2D inverse FFT and copies the result out to an image.
 //
 // The image is copied from the top-left corner.
-func idftImage(src *fftw.Array2, w, h int) *rimg64.Image {
-	dst := rimg64.New(w, h)
+func idftToChannel(dst *rimg64.Multi, channel int, src *fftw.Array2) {
 	// Inverse transform in-place.
 	plan := fftw.NewPlan2(src, src, fftw.Backward, fftw.Estimate)
 	defer plan.Destroy()
 	plan.Execute()
 	// Accumulate total real and imaginary components to check.
 	var re, im float64
-	for i := 0; i < w; i++ {
-		for j := 0; j < h; j++ {
+	for i := 0; i < dst.Width; i++ {
+		for j := 0; j < dst.Height; j++ {
 			a, b := real(src.At(i, j)), imag(src.At(i, j))
 			re, im = re+a*a, im+b*b
-			dst.Set(i, j, a)
+			dst.Set(i, j, channel, a)
 		}
 	}
 	re, im = math.Sqrt(re), math.Sqrt(im)
@@ -80,7 +76,6 @@ func idftImage(src *fftw.Array2, w, h int) *rimg64.Image {
 	if (re > eps && im/re > 1e-12) || (re <= eps && im > 1e-6) {
 		log.Printf("significant imaginary component (real %g, imag %g)", re, im)
 	}
-	return dst
 }
 
 // Copies an image into an FFT array and computes the forward transform.
@@ -100,4 +95,66 @@ func dftCovar(g *Covar, m, n, p, q, bx, by int) *fftw.Array2 {
 	defer plan.Destroy()
 	plan.Execute()
 	return dst
+}
+
+// Copies a channel pair (p, q) into an FFT array.
+func copyCovarTo(dst *fftw.Array2, g *Covar, p, q, bx, by int) {
+	m, n := dst.Dims()
+	if 2*bx+1 > m || 2*by+1 > n {
+		panic(fmt.Sprintf("bandwidth too large (bx %d, by %d, m %d, n %d)", bx, by, m, n))
+	}
+	for i := 0; i < m; i++ {
+		for j := 0; j < n; j++ {
+			dst.Set(i, j, 0)
+		}
+	}
+	for u := -bx; u <= bx; u++ {
+		for v := -by; v <= by; v++ {
+			i := (u + m) % m
+			j := (v + n) % n
+			dst.Set(i, j, complex(g.At(u, v, p, q), 0))
+		}
+	}
+}
+
+func scale(alpha complex128, x *fftw.Array2) {
+	m, n := x.Dims()
+	for u := 0; u < m; u++ {
+		for v := 0; v < n; v++ {
+			x.Set(u, v, alpha*x.At(u, v))
+		}
+	}
+}
+
+// z(u, v) <- x(u, v) * y(u, v) for all u, v.
+func mul(z, x, y *fftw.Array2) {
+	m, n := z.Dims()
+	for u := 0; u < m; u++ {
+		for v := 0; v < n; v++ {
+			z.Set(u, v, x.At(u, v)*y.At(u, v))
+		}
+	}
+}
+
+// z(u, v) <- z(u, v) + x(u, v)*y(u, v) for all u, v.
+func addMul(z, x, y *fftw.Array2) {
+	m, n := z.Dims()
+	for u := 0; u < m; u++ {
+		for v := 0; v < n; v++ {
+			xy := x.At(u, v) * y.At(u, v)
+			z.Set(u, v, z.At(u, v)+xy)
+		}
+	}
+}
+
+// z(u, v) <- conj(x(u, v)) * y(u, v) / mn for all u, v.
+func crossCorr(z, x, y *fftw.Array2) {
+	m, n := x.Dims()
+	mn := float64(m * n)
+	for u := 0; u < m; u++ {
+		for v := 0; v < n; v++ {
+			xy := cmplx.Conj(x.At(u, v)) * y.At(u, v) / complex(mn, 0)
+			z.Set(u, v, xy)
+		}
+	}
 }

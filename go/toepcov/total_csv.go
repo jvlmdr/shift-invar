@@ -11,6 +11,9 @@ import (
 	"github.com/jvlmdr/go-file/fileutil"
 )
 
+// SaveTotalExt writes the statistics to a file,
+// with the format determined by the extension.
+// The extension can be ".gob", ".json" or ".csv".
 func SaveTotalExt(fname string, total *Total) error {
 	switch path.Ext(fname) {
 	case ".csv":
@@ -20,6 +23,9 @@ func SaveTotalExt(fname string, total *Total) error {
 	}
 }
 
+// LoadTotalExt loads the statistics from a file,
+// with the format determined by the extension.
+// The extension can be ".gob", ".json" or ".csv".
 func LoadTotalExt(fname string) (*Total, error) {
 	switch path.Ext(fname) {
 	case ".csv":
@@ -57,6 +63,7 @@ func loadTotalCSV(fname string) (*Total, error) {
 	return DecodeTotalCSV(file, chans, band)
 }
 
+// EncodeTotalCSV writes the statistics in CSV format.
 func EncodeTotalCSV(w io.Writer, total *Total) error {
 	band, chans := total.CovarTotal.Bandwidth, total.CovarTotal.Channels
 	ww := csv.NewWriter(w)
@@ -127,6 +134,8 @@ func formatNumImages(x int) []string {
 	return []string{"num-images", strconv.FormatInt(int64(x), 10)}
 }
 
+// DecodeTotalCSV reads the statistics in CSV format
+// with known channels and bandwidth.
 func DecodeTotalCSV(r io.Reader, chans, band int) (*Total, error) {
 	var (
 		cov   = NewCovar(chans, band)
@@ -181,6 +190,8 @@ func DecodeTotalCSV(r io.Reader, chans, band int) (*Total, error) {
 	}
 }
 
+// DecodeTotalSizeCSV reads CSV format to determine
+// the number of channels and the bandwidth.
 func DecodeTotalSizeCSV(r io.Reader) (chans, band int, err error) {
 	rr := csv.NewReader(r)
 	rr.FieldsPerRecord = -1
@@ -234,31 +245,31 @@ func parseCovarElem(s []string) (du, dv, p, q int, x float64, err error) {
 	if err != nil {
 		return
 	}
-	du_, err := strconv.ParseInt(s[0], 10, 32)
+	duIn, err := strconv.ParseInt(s[0], 10, 32)
 	if err != nil {
 		return
 	}
 	s = s[1:]
-	dv_, err := strconv.ParseInt(s[0], 10, 32)
+	dvIn, err := strconv.ParseInt(s[0], 10, 32)
 	if err != nil {
 		return
 	}
 	s = s[1:]
-	p_, err := strconv.ParseInt(s[0], 10, 32)
+	pIn, err := strconv.ParseInt(s[0], 10, 32)
 	if err != nil {
 		return
 	}
 	s = s[1:]
-	q_, err := strconv.ParseInt(s[0], 10, 32)
+	qIn, err := strconv.ParseInt(s[0], 10, 32)
 	if err != nil {
 		return
 	}
 	s = s[1:]
-	x_, err := strconv.ParseFloat(s[0], 64)
+	xIn, err := strconv.ParseFloat(s[0], 64)
 	if err != nil {
 		return
 	}
-	return int(du_), int(dv_), int(p_), int(q_), x_, nil
+	return int(duIn), int(dvIn), int(pIn), int(qIn), xIn, nil
 }
 
 func parseMeanElem(s []string) (p int, x float64, err error) {
@@ -266,16 +277,16 @@ func parseMeanElem(s []string) (p int, x float64, err error) {
 	if err != nil {
 		return
 	}
-	p_, err := strconv.ParseInt(s[0], 10, 32)
+	pIn, err := strconv.ParseInt(s[0], 10, 32)
 	if err != nil {
 		return
 	}
 	s = s[1:]
-	x_, err := strconv.ParseFloat(s[0], 64)
+	xIn, err := strconv.ParseFloat(s[0], 64)
 	if err != nil {
 		return
 	}
-	return int(p_), x_, nil
+	return int(pIn), xIn, nil
 }
 
 func parseCountElem(s []string) (du, dv int, x int64, err error) {
@@ -283,21 +294,21 @@ func parseCountElem(s []string) (du, dv int, x int64, err error) {
 	if err != nil {
 		return
 	}
-	du_, err := strconv.ParseInt(s[0], 10, 32)
+	duIn, err := strconv.ParseInt(s[0], 10, 32)
 	if err != nil {
 		return
 	}
 	s = s[1:]
-	dv_, err := strconv.ParseInt(s[0], 10, 32)
+	dvIn, err := strconv.ParseInt(s[0], 10, 32)
 	if err != nil {
 		return
 	}
 	s = s[1:]
-	x_, err := strconv.ParseInt(s[0], 10, 64)
+	xIn, err := strconv.ParseInt(s[0], 10, 64)
 	if err != nil {
 		return
 	}
-	return int(du_), int(dv_), x_, nil
+	return int(duIn), int(dvIn), xIn, nil
 }
 
 func parseNumImages(s []string) (x int, err error) {
@@ -305,11 +316,11 @@ func parseNumImages(s []string) (x int, err error) {
 	if err != nil {
 		return
 	}
-	x_, err := strconv.ParseInt(s[0], 10, 64)
+	xIn, err := strconv.ParseInt(s[0], 10, 64)
 	if err != nil {
 		return
 	}
-	return int(x_), nil
+	return int(xIn), nil
 }
 
 func errIfLenNotEq(want, got int) error {

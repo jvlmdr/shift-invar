@@ -1,14 +1,15 @@
 package toepcov
 
 import (
-	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/lin-go/lapack"
-
 	"fmt"
 	"log"
+
+	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/lin-go/lapack"
 )
 
-// Computes S \ f using LAPACK (Cholesky factorization).
+// InvMulDirect computes x = S \ f using LAPACK (Cholesky factorization).
+// Returns an error if the matrix is not positive definite.
 func InvMulDirect(cov *Covar, f *rimg64.Multi) (*rimg64.Multi, error) {
 	if f.Channels != cov.Channels {
 		panic(fmt.Sprintf(

@@ -1,12 +1,12 @@
 package toepcov
 
 import (
-	"github.com/jvlmdr/go-cv/rimg64"
-
 	"fmt"
+
+	"github.com/jvlmdr/go-cv/rimg64"
 )
 
-// Multiplies a stationary covariance matrix by an image.
+// MulNaive multiplies a stationary covariance matrix by an image.
 // Uses naive summation but does not instantiate matrix.
 func MulNaive(g *Covar, f *rimg64.Multi) *rimg64.Multi {
 	if g.Channels != f.Channels {

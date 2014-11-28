@@ -32,10 +32,8 @@ func TestCovar_Downsample(t *testing.T) {
 
 	// Make a random image.
 	im := randImage(width, height, channels)
-
 	// Estimate covariance then downsample.
 	got := covarFFT(im, band).Downsample(rate)
-
 	// Downsample and the estimate covariance.
 	// Subsample image at every offset and combine them.
 	var (
@@ -45,8 +43,8 @@ func TestCovar_Downsample(t *testing.T) {
 	for i := 0; i < rate; i++ {
 		for j := 0; j < rate; j++ {
 			subim := downsampleImage(im, rate, i, j)
-			t := covarStatsFFT(subim, band/rate)
-			n := covarCounts(subim.Width, subim.Height, band/rate)
+			t := CovarSumFFT(subim, band/rate)
+			n := CovarCount(subim.Width, subim.Height, band/rate)
 			if sum == nil {
 				sum = t
 				cnt = n
@@ -57,7 +55,6 @@ func TestCovar_Downsample(t *testing.T) {
 		}
 	}
 	want := normCovar(sum, cnt)
-
 	covarEq(t, want, got, 1e-6)
 }
 

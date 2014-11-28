@@ -1,19 +1,21 @@
-package toepcov
+package imcov
 
 import (
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/lin-go/mat"
 )
 
-// Describes a dense covariance matrix
-// whose elements are indexed (u, v, w), (i, j, k).
-type FullCovar struct {
+// Covar describes a dense covariance matrix.
+// Elements are indexed (u, v, w), (i, j, k)
+// for channel w at position (u, v) and channel k at position (i, j).
+type Covar struct {
 	Width, Height, Channels int
 	// Elems[u][v][w][i][j][k]
 	Elems [][][][][][]float64
 }
 
-func NewFullCovar(width, height, channels int) *FullCovar {
+// NewCovar creates a new covariance matrix of the given dimension.
+func NewCovar(width, height, channels int) *Covar {
 	elems := make([][][][][][]float64, width)
 	for u := range elems {
 		elems[u] = make([][][][][]float64, height)
@@ -30,23 +32,27 @@ func NewFullCovar(width, height, channels int) *FullCovar {
 			}
 		}
 	}
-	return &FullCovar{width, height, channels, elems}
+	return &Covar{width, height, channels, elems}
 }
 
-func (cov *FullCovar) At(u, v, w, i, j, k int) float64 {
+// At accesses the element (u, v, w), (i, j, k).
+func (cov *Covar) At(u, v, w, i, j, k int) float64 {
 	return cov.Elems[u][v][w][i][j][k]
 }
 
-func (cov *FullCovar) Set(u, v, w, i, j, k int, x float64) {
+// Set modifies the element (u, v, w), (i, j, k).
+func (cov *Covar) Set(u, v, w, i, j, k int, x float64) {
 	cov.Elems[u][v][w][i][j][k] = x
 }
 
-func (cov *FullCovar) AddAt(u, v, w, i, j, k int, x float64) {
+// AddAt increments the element (u, v, w), (i, j, k).
+func (cov *Covar) AddAt(u, v, w, i, j, k int, x float64) {
 	cov.Elems[u][v][w][i][j][k] += x
 }
 
-func (cov *FullCovar) Clone() *FullCovar {
-	dst := NewFullCovar(cov.Width, cov.Height, cov.Channels)
+// Clone creates a copy of the covariance matrix.
+func (cov *Covar) Clone() *Covar {
+	dst := NewCovar(cov.Width, cov.Height, cov.Channels)
 	for u := range dst.Elems {
 		for v := range dst.Elems[u] {
 			for w := range dst.Elems[u][v] {
@@ -63,11 +69,13 @@ func (cov *FullCovar) Clone() *FullCovar {
 	return dst
 }
 
-func (a *FullCovar) Plus(b *FullCovar) *FullCovar {
+// Plus computes the sum of two covariances.
+// Memory is allocated for the result.
+func (a *Covar) Plus(b *Covar) *Covar {
 	if a.Width != b.Width || a.Height != b.Height || a.Channels != b.Channels {
 		panic("dimensions are not the same")
 	}
-	dst := NewFullCovar(a.Width, a.Height, a.Channels)
+	dst := NewCovar(a.Width, a.Height, a.Channels)
 	for u := range dst.Elems {
 		for v := range dst.Elems[u] {
 			for w := range dst.Elems[u][v] {
@@ -86,9 +94,9 @@ func (a *FullCovar) Plus(b *FullCovar) *FullCovar {
 	return dst
 }
 
-// Adds a scaled identity matrix to the covariance.
+// AddLambdaI adds a scaled identity matrix to the covariance.
 // Modifies the current matrix.
-func (a *FullCovar) AddLambdaI(lambda float64) {
+func (a *Covar) AddLambdaI(lambda float64) {
 	for u := range a.Elems {
 		for v := range a.Elems[u] {
 			for w := range a.Elems[u][v] {
@@ -98,8 +106,10 @@ func (a *FullCovar) AddLambdaI(lambda float64) {
 	}
 }
 
-func (cov *FullCovar) Scale(alpha float64) *FullCovar {
-	dst := NewFullCovar(cov.Width, cov.Height, cov.Channels)
+// Scale multiplies the covariance matrix by a constant.
+// Memory is allocated for the result.
+func (cov *Covar) Scale(alpha float64) *Covar {
+	dst := NewCovar(cov.Width, cov.Height, cov.Channels)
 	for u := range dst.Elems {
 		for v := range dst.Elems[u] {
 			for w := range dst.Elems[u][v] {
@@ -116,8 +126,12 @@ func (cov *FullCovar) Scale(alpha float64) *FullCovar {
 	return dst
 }
 
-func (cov *FullCovar) Center(mu *rimg64.Multi) *FullCovar {
-	dst := NewFullCovar(cov.Width, cov.Height, cov.Channels)
+// Center subtracts the mean from the covariance matrix.
+// It computes:
+// 	cov - mu mu'
+// Memory is allocated for the result.
+func (cov *Covar) Center(mu *rimg64.Multi) *Covar {
+	dst := NewCovar(cov.Width, cov.Height, cov.Channels)
 	for u := range dst.Elems {
 		for v := range dst.Elems[u] {
 			for w := range dst.Elems[u][v] {
@@ -136,9 +150,9 @@ func (cov *FullCovar) Center(mu *rimg64.Multi) *FullCovar {
 	return dst
 }
 
-// Instantiates the full whc x whc covariance matrix.
+// Matrix instantiates the full whc x whc covariance matrix.
 // w, h and c are the width, height and number of channels.
-func (cov *FullCovar) Matrix() *mat.Mat {
+func (cov *Covar) Matrix() *mat.Mat {
 	var (
 		n  = cov.Channels * cov.Height * cov.Width
 		s  = mat.New(n, n)

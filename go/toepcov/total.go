@@ -2,7 +2,7 @@ package toepcov
 
 import "fmt"
 
-// Summation over images so far.
+// Total is the statistics of a set of images.
 type Total struct {
 	// Sum over pixel values per channel.
 	MeanTotal []float64
@@ -15,7 +15,7 @@ type Total struct {
 	Images int
 }
 
-// Combine two totals.
+// AddTotal combines two Totals.
 // Neither operand can be nil.
 func AddTotal(lhs, rhs *Total) *Total {
 	pixel := addPixel(lhs.MeanTotal, rhs.MeanTotal)
@@ -25,7 +25,7 @@ func AddTotal(lhs, rhs *Total) *Total {
 	return &Total{pixel, covar, count, n}
 }
 
-// Combine two totals.
+// AddTotalToEither combines two totals.
 // One of the inputs will be modified.
 // If either operand is nil, then the other is returned.
 func AddTotalToEither(lhs, rhs *Total) *Total {
@@ -37,12 +37,14 @@ func AddTotalToEither(lhs, rhs *Total) *Total {
 	}
 	pixel := addPixel(lhs.MeanTotal, rhs.MeanTotal)
 	covar := AddCovarToEither(lhs.CovarTotal, rhs.CovarTotal)
+	// Do not bother re-using memory for Count.
+	// It is a fraction of the size of Covar.
 	count := AddCount(lhs.Count, rhs.Count)
 	n := lhs.Images + rhs.Images
 	return &Total{pixel, covar, count, n}
 }
 
-// Normalizes the sums to obtain expected mean and covariance.
+// Normalize normalizes the sums to obtain expected mean and covariance.
 // Normalization is performed per-pixel,
 // giving expectation per relative displacement
 // but not guaranteeing a positive semidefinite matrix.
@@ -58,7 +60,7 @@ func Normalize(total *Total, center bool) *Distr {
 	return &Distr{mean, cov}
 }
 
-// Normalizes the sums to obtain expected mean and covariance.
+// NormalizeUniform normalizes the sums to obtain expected mean and covariance.
 // Normalization is performed uniformly, giving the exactly-stationary covariance matrix
 // which would be obtained by computing the expectation
 // over all translated windows in the periodic extension of the zero-padded image.

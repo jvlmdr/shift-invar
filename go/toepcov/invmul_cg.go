@@ -7,6 +7,9 @@ import (
 	"github.com/jvlmdr/go-cv/rimg64"
 )
 
+// InvMulConjGrad solves for x in S x = b using conjugate gradient.
+// The fast multiplication routine in the Fourier domain is used to compute products with the matrix S.
+// x is an initial guess, tol and iter are specified in package cg.
 func InvMulConjGrad(g *Covar, b, x *rimg64.Multi, tol float64, iter int, debug io.Writer) (*rimg64.Multi, error) {
 	var muler MulerFFT
 	muler.Init(g, b.Width, b.Height)

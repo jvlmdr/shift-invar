@@ -1,6 +1,7 @@
 package toepcov
 
 import (
+	"image"
 	"testing"
 
 	"github.com/jvlmdr/go-cv/rimg64"
@@ -13,24 +14,14 @@ func TestStats(t *testing.T) {
 	)
 
 	f := rimg64.NewMulti(3, 2, 2)
-	// Channel 0:
-	// 1 2 3
-	// 4 5 6
-	f.Set(0, 0, 0, 1)
-	f.Set(1, 0, 0, 2)
-	f.Set(2, 0, 0, 3)
-	f.Set(0, 1, 0, 4)
-	f.Set(1, 1, 0, 5)
-	f.Set(2, 1, 0, 6)
-	// Channel 1:
-	// 7 8 9
-	// 2 3 5
-	f.Set(0, 0, 1, 7)
-	f.Set(1, 0, 1, 8)
-	f.Set(2, 0, 1, 9)
-	f.Set(0, 1, 1, 2)
-	f.Set(1, 1, 1, 3)
-	f.Set(2, 1, 1, 5)
+	f.SetChannel(0, rimg64.FromRows([][]float64{
+		{1, 2, 3},
+		{4, 5, 6},
+	}))
+	f.SetChannel(1, rimg64.FromRows([][]float64{
+		{7, 8, 9},
+		{2, 3, 5},
+	}))
 
 	stats := Stats(f, band)
 	distr := Normalize(stats, false)
@@ -87,7 +78,7 @@ func TestStats(t *testing.T) {
 }
 
 // Compute covariance using FFT and compare to the naive method.
-func TestCovarStatsFFT_vsNaive(t *testing.T) {
+func TestCovarSumFFT_vsNaive(t *testing.T) {
 	const eps = 1e-9
 	var (
 		width     = 200
@@ -106,10 +97,10 @@ func TestCovarStatsFFT_vsNaive(t *testing.T) {
 
 	var naive, fft *Covar
 	durNaive := timeFunc(func() {
-		naive = covarStatsNaive(im, bandwidth)
+		naive = CovarSumNaive(im, bandwidth)
 	})
 	durFFT := timeFunc(func() {
-		fft = covarStatsFFT(im, bandwidth)
+		fft = CovarSumFFT(im, bandwidth)
 	})
 
 	t.Log("naive:", durNaive)
@@ -136,7 +127,7 @@ func TestCovarStatsFFT_vsNaive(t *testing.T) {
 
 // Compute counts without looping over every pair
 // and compare to the naive method.
-func TestCovarCounts_vsNaive(t *testing.T) {
+func TestCovarCount_vsNaive(t *testing.T) {
 	var (
 		width     = 200
 		height    = 150
@@ -152,8 +143,8 @@ func TestCovarCounts_vsNaive(t *testing.T) {
 
 	im := rimg64.NewMulti(width, height, channels)
 
-	naive := covarCountsNaive(im, bandwidth)
-	clever := covarCounts(im.Width, im.Height, bandwidth)
+	naive := covarCountNaive(im, bandwidth)
+	clever := CovarCount(im.Width, im.Height, bandwidth)
 
 	if naive.Band != clever.Band {
 		t.Fatalf("bandwidth not equal: naive %d, clever %d", naive.Band, clever.Band)
@@ -168,4 +159,25 @@ func TestCovarCounts_vsNaive(t *testing.T) {
 			}
 		}
 	}
+}
+
+// b is the bandwidth.
+func covarCountNaive(f *rimg64.Multi, b int) *Count {
+	cnt := NewCount(b)
+	bnds := image.Rect(0, 0, f.Width, f.Height)
+	for u := 0; u < f.Width; u++ {
+		for v := 0; v < f.Height; v++ {
+			near := image.Rect(u-b, v-b, u+b+1, v+b+1)
+			r := bnds.Intersect(near)
+
+			for i := r.Min.X; i < r.Max.X; i++ {
+				du := i - u
+				for j := r.Min.Y; j < r.Max.Y; j++ {
+					dv := j - v
+					cnt.Set(du, dv, cnt.At(du, dv)+1)
+				}
+			}
+		}
+	}
+	return cnt
 }

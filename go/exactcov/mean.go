@@ -1,14 +1,16 @@
-package toepcov
+package exactcov
 
 import (
 	"image"
 
+	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/shift-invar/go/toepcov"
 )
 
 // Necessary data to construct a covariance matrix.
 // Can also be sub-matrixed.
-type ExactMean struct {
+type Mean struct {
 	Width     int
 	Height    int
 	Channels  int
@@ -17,13 +19,13 @@ type ExactMean struct {
 	Corners   *cornerMean
 }
 
-func (cov *ExactMean) Subset(m, n int) *ExactMean {
+func (cov *Mean) Subset(m, n int) *Mean {
 	if m > cov.Width || n > cov.Height {
 		panic("not a subset")
 	}
 
 	k := cov.Channels
-	dst := &ExactMean{Width: m, Height: n, Channels: k}
+	dst := &Mean{Width: m, Height: n, Channels: k}
 	dst.MeanPixel = clonePixel(cov.MeanPixel)
 	dst.Sides = cov.Sides.Subset(m, n)
 	dst.Corners = cov.Corners.Subset(m, n)
@@ -31,7 +33,7 @@ func (cov *ExactMean) Subset(m, n int) *ExactMean {
 }
 
 // Flattens the components into a single un-normalized vector (image).
-func (cov *ExactMean) Export() *rimg64.Multi {
+func (cov *Mean) Export() *rimg64.Multi {
 	m, n, k := cov.Width, cov.Height, cov.Channels
 	a := rimg64.NewMulti(m, n, k)
 	for u := 0; u < m; u++ {
@@ -47,11 +49,11 @@ func (cov *ExactMean) Export() *rimg64.Multi {
 	return a
 }
 
-func (a *ExactMean) Plus(b *ExactMean) *ExactMean {
+func (a *Mean) Plus(b *Mean) *Mean {
 	if a.Width != b.Width || a.Height != b.Height || a.Channels != b.Channels {
 		panic("dimensions are not the same")
 	}
-	return &ExactMean{
+	return &Mean{
 		a.Width, a.Height, a.Channels,
 		addPixel(a.MeanPixel, b.MeanPixel),
 		a.Sides.Plus(b.Sides),
@@ -59,22 +61,22 @@ func (a *ExactMean) Plus(b *ExactMean) *ExactMean {
 	}
 }
 
-// Returns non-normalized covariance.
-func ExactMeanOf(im *rimg64.Multi, m, n int) *ExactMean {
+// Returns non-normalized mean.
+func MeanSum(im *rimg64.Multi, m, n int) *Mean {
 	k := im.Channels
 	// Get stationary part.
-	tplz := meanPixel(im)
+	tplz := toepcov.MeanSum(im)
 	// Get non-stationary part.
-	sides := sideMeanOf(im, m, n)
-	corners := cornerMeanOf(im, m, n)
-	return &ExactMean{m, n, k, tplz, sides, corners}
+	sides := SideMeanStats(im, m, n)
+	corners := CornerMeanStats(im, m, n)
+	return &Mean{m, n, k, tplz, sides, corners}
 }
 
 // Corners[i][j].At(u, v, p) gives
 // sum over a and b of x_p(a, b).
 // i = 0 for a in 0 to u-1, i = 1 for a in M-m+u+1 to M-1.
 // j = 0 for b in 0 to v-1, j = 1 for b in N-n+v+1 to N-1.
-func cornerMeanOf(im *rimg64.Multi, m, n int) *cornerMean {
+func CornerMeanStats(im *rimg64.Multi, m, n int) *cornerMean {
 	M, N, k := im.Width, im.Height, im.Channels
 	mu := newCornerMean(m, n, k)
 
@@ -139,7 +141,7 @@ func cornerMeanOf(im *rimg64.Multi, m, n int) *cornerMean {
 
 // Sides[0][i].At(v, p) defined for v = 0, ..., n-1.
 // Sides[1][i].At(u, p) defined for u = 0, ..., m-1.
-func sideMeanOf(im *rimg64.Multi, m, n int) *sideMean {
+func SideMeanStats(im *rimg64.Multi, m, n int) *sideMean {
 	M, N, k := im.Width, im.Height, im.Channels
 	mu := newSideMean(m, n, k)
 
@@ -434,26 +436,18 @@ func (a *sideMean) Plus(b *sideMean) *sideMean {
 	return dst
 }
 
-// Computes mean naively from all windows in one image.
-// Mean is not normalized.
-func ExactMeanNaive(im *rimg64.Multi, width, height int) *rimg64.Multi {
-	if im.Width < width || im.Height < height {
-		return nil
-	}
+func clonePixel(x []float64) []float64 {
+	y := make([]float64, len(x))
+	copy(y, x)
+	return y
+}
 
-	mu := rimg64.NewMulti(width, height, im.Channels)
-	for a := 0; a < im.Width-width+1; a++ {
-		for b := 0; b < im.Height-height+1; b++ {
-			for u := 0; u < width; u++ {
-				for v := 0; v < height; v++ {
-					for w := 0; w < im.Channels; w++ {
-						prev := mu.At(u, v, w)
-						curr := im.At(a+u, b+v, w)
-						mu.Set(u, v, w, prev+curr)
-					}
-				}
-			}
-		}
+// Panics if x and y have different number of channels.
+func addPixel(x, y []float64) []float64 {
+	// Ensure number of channels is consistent.
+	if err := errIfNumChansNotEq(len(x), len(y)); err != nil {
+		panic(err)
 	}
-	return mu
+	z := make([]float64, len(x))
+	return floats.AddTo(z, x, y)
 }
