@@ -172,42 +172,5 @@ func main() {
 		perfs[i] = testPerf
 		fmt.Printf("fold %d, train miss rate %.3g, test miss rate %.3g\n", i, trainPerf, testPerf)
 	}
-	//	fmt.Println(perfs)
-
-	//	detOpts := DetectOpts{
-	//		FeatName: *featName,
-	//		FeatSpec: *featSpec,
-	//		PyrStep:  *pyrStep,
-	//		MaxIOU:   *maxTestIOU,
-	//		Margin:   *margin,
-	//		LocalMax: *localMax,
-	//	}
-
-	//	{
-	//		// Test template on training set.
-	//		log.Print("test detector: training set")
-	//		valDets, err := test(inriaDir, "Train", tmpl, detOpts, *minInter)
-	//		if err != nil {
-	//			log.Fatal(err)
-	//		}
-	//		if err := fileutil.SaveExt("val-dets-train.json", valDets); err != nil {
-	//			log.Print(err)
-	//		}
-	//		results := ml.ResultSet(mergeDets(valDets).Enum())
-	//		fmt.Println("training set: avgprec:", results.AveragePrecision())
-	//	}
-
-	//	{
-	//		// Test template.
-	//		log.Print("test detector: testing set")
-	//		valDets, err := test(inriaDir, "Test", tmpl, detOpts, *minInter)
-	//		if err != nil {
-	//			log.Fatal(err)
-	//		}
-	//		if err := fileutil.SaveExt("val-dets-test.json", valDets); err != nil {
-	//			log.Print(err)
-	//		}
-	//		results := ml.ResultSet(mergeDets(valDets).Enum())
-	//		fmt.Println("testing set: avgprec:", results.AveragePrecision())
-	//	}
+	fmt.Println(perfs)
 }

@@ -2,13 +2,9 @@ package main
 
 import (
 	"fmt"
-	"image"
-	"log"
-	"time"
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
-	"github.com/jvlmdr/go-cv/imsamp"
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-svm/svm"
 	"github.com/jvlmdr/shift-invar/go/data"
@@ -21,100 +17,24 @@ type SVMOpts struct {
 
 func trainSVM(trainData *data.TrainingSet, dataset data.ImageSet, phi feat.Image, bias float64, region detect.PadRect, addFlip bool, cpos, cneg, lambda float64, interp resize.InterpolationFunction) (*rimg64.Multi, float64, error) {
 	// Load training data.
+	// Size of feature image.
+	size := phi.Size(region.Size)
 	// Positive examples are extracted and stored as vectors.
-	// Negative examples are represented as indices into an image.
-	var pos [][]float64
-	for _, name := range trainData.PosImages {
-		log.Println("load positive image:", name)
-		t := time.Now()
-		file := dataset.File(name)
-		im, err := loadImage(file)
-		if err != nil {
-			log.Printf("load positive image: %s, error: %v", file, err)
-			continue
-		}
-		durLoad := time.Since(t)
-		rects := trainData.PosRects[name]
-		var durSamp, durResize, durFlip, durFeat time.Duration
-		for _, rect := range rects {
-			// Extract and resize window.
-			t = time.Now()
-			subim := imsamp.Rect(im, rect, imsamp.Continue)
-			durSamp += time.Since(t)
-			t = time.Now()
-			subim = resize.Resize(uint(region.Size.X), uint(region.Size.Y), subim, interp)
-			durResize += time.Since(t)
-			// Add flip if desired.
-			flips := []bool{false}
-			if addFlip {
-				flips = []bool{false, true}
-			}
-			for _, flip := range flips {
-				pix := subim
-				t = time.Now()
-				if flip {
-					pix = flipImageX(subim)
-				}
-				durFlip += time.Since(t)
-				t = time.Now()
-				x, err := phi.Apply(pix)
-				if err != nil {
-					return nil, 0, err
-				}
-				durFeat += time.Since(t)
-				vec := x.Elems
-				if bias != 0 {
-					vec = append(vec, bias)
-				}
-				pos = append(pos, vec)
-			}
-		}
-		log.Printf(
-			"load %.3gms, sample %.3gms, resize %.3gms, flip %.3gms, feat %.3gms",
-			durLoad.Seconds()*1000, durSamp.Seconds()*1000, durResize.Seconds()*1000,
-			durFlip.Seconds()*1000, durFeat.Seconds()*1000,
-		)
+	pos, err := data.PosExamples(trainData.PosImages, trainData.PosRects, dataset, phi, bias, region, addFlip, interp)
+	if err != nil {
+		return nil, 0, err
 	}
 	if len(pos) == 0 {
 		return nil, 0, fmt.Errorf("empty positive set")
 	}
-
-	// Size of feature image.
-	size := phi.Size(region.Size)
-	var neg []*vecset.WindowSet
-	for _, name := range trainData.NegImages {
-		log.Println("load negative image:", name)
-		t := time.Now()
-		file := dataset.File(name)
-		im, err := loadImage(file)
-		if err != nil {
-			log.Printf("load negative image: %s, error: %v", file, err)
-			continue
-		}
-		durLoad := time.Since(t)
-		t = time.Now()
-		// Take transform of entire image.
-		x, err := phi.Apply(im)
-		if err != nil {
-			return nil, 0, err
-		}
-		durFeat := time.Since(t)
-		set := new(vecset.WindowSet)
-		set.Image = x
-		set.Size = size
-		for u := 0; u < x.Width-size.X+1; u++ {
-			for v := 0; v < x.Height-size.Y+1; v++ {
-				set.Windows = append(set.Windows, image.Pt(u, v))
-			}
-		}
-		set.Bias = bias
-		neg = append(neg, set)
-		log.Printf("load %.3gms, feat %.3gms", durLoad.Seconds()*1000, durFeat.Seconds()*1000)
+	// Negative examples are represented as indices into an image.
+	neg, err := data.NegWindowSets(trainData.NegImages, dataset, phi, bias, region, interp)
+	if err != nil {
+		return nil, 0, err
 	}
 	if len(neg) == 0 {
 		return nil, 0, fmt.Errorf("empty negative set")
 	}
-
 	var numNeg int
 	for i := range neg {
 		numNeg += neg[i].Len()
