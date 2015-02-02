@@ -30,3 +30,14 @@ func split(x []string, n int) [][]string {
 	}
 	return y
 }
+
+func mergeExcept(x [][]string, j int) []string {
+	var y []string
+	for i, xi := range x {
+		if i == j {
+			continue
+		}
+		y = append(y, xi...)
+	}
+	return y
+}

@@ -17,8 +17,7 @@ import (
 type SVMOpts struct {
 }
 
-// The size is in feature pixels not color pixels.
-func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float64, region detect.PadRect, size image.Point, channels int, addFlip bool, cpos, cneg, lambda float64) (*rimg64.Multi, error) {
+func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float64, region detect.PadRect, addFlip bool, cpos, cneg, lambda float64, interp resize.InterpolationFunction) (*rimg64.Multi, float64, error) {
 	// Load training data.
 	// Positive examples are extracted and stored as vectors.
 	// Negative examples are represented as indices into an image.
@@ -41,7 +40,7 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 			subim := imsamp.Rect(im, rect, imsamp.Continue)
 			durSamp += time.Since(t)
 			t = time.Now()
-			subim = resize.Resize(uint(region.Size.X), uint(region.Size.Y), subim, DefaultInterp)
+			subim = resize.Resize(uint(region.Size.X), uint(region.Size.Y), subim, interp)
 			durResize += time.Since(t)
 			// Add flip if desired.
 			flips := []bool{false}
@@ -58,7 +57,7 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 				t = time.Now()
 				x, err := phi.Apply(pix)
 				if err != nil {
-					return nil, err
+					return nil, 0, err
 				}
 				durFeat += time.Since(t)
 				vec := x.Elems
@@ -75,9 +74,11 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 		)
 	}
 	if len(pos) == 0 {
-		return nil, fmt.Errorf("empty positive set")
+		return nil, 0, fmt.Errorf("empty positive set")
 	}
 
+	// Size of feature image.
+	size := phi.Size(region.Size)
 	var neg []*WindowSet
 	for _, name := range trainData.NegImages {
 		log.Println("load negative image:", name)
@@ -93,7 +94,7 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 		// Take transform of entire image.
 		x, err := phi.Apply(im)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		durFeat := time.Since(t)
 		set := new(WindowSet)
@@ -109,7 +110,7 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 		log.Printf("load %.3gms, feat %.3gms", durLoad.Seconds()*1000, durFeat.Seconds()*1000)
 	}
 	if len(neg) == 0 {
-		return nil, fmt.Errorf("empty negative set")
+		return nil, 0, fmt.Errorf("empty negative set")
 	}
 
 	var numNeg int
@@ -141,20 +142,27 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 
 	w, err := svm.Train(NewUnion(x), y, c,
 		func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[int]float64) (bool, error) {
-			if epoch < 8 {
+			if epoch < 4 {
 				return false, nil
 			}
 			return true, nil
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+
+	channels := phi.Channels()
 	tmpl := &rimg64.Multi{
 		Width:    size.X,
 		Height:   size.Y,
 		Channels: channels,
-		Elems:    w[:size.X*size.Y*channels],
+		// Exclude bias term if present.
+		Elems: w[:size.X*size.Y*channels],
 	}
-	return tmpl, nil
+	var b float64
+	if bias != 0 {
+		b = bias * w[size.X*size.Y*channels]
+	}
+	return tmpl, b, nil
 }
