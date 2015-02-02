@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 
+	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/shift-invar/go/data"
@@ -27,7 +28,11 @@ func test(tmpl *detect.FeatTmpl, ims []string, dataset data.ImageSet, phi feat.I
 		imvals = append(imvals, imval.Set())
 	}
 	valset := detect.MergeValSets(imvals...)
-	// Reduce set of validations to a number.
-	perf := avgMissRate(valset, fppis)
+	// Get average miss rate.
+	rates, err := detect.MissRateAtFPPIs(valset, fppis)
+	if err != nil {
+		return 0, err
+	}
+	perf := floats.Sum(rates) / float64(len(rates))
 	return perf, nil
 }
