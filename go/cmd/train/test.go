@@ -5,9 +5,10 @@ import (
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
+	"github.com/jvlmdr/shift-invar/go/data"
 )
 
-func test(tmpl *detect.FeatTmpl, ims []string, dataset Dataset, phi feat.Image, opts detect.MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
+func test(tmpl *detect.FeatTmpl, ims []string, dataset data.ImageSet, phi feat.Image, opts detect.MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
 	var imvals []*detect.ValSet
 	for _, name := range ims {
 		// Load image.

@@ -22,6 +22,7 @@ import (
 	"github.com/jvlmdr/go-cv/featset"
 	"github.com/jvlmdr/go-cv/imgpyr"
 	"github.com/jvlmdr/go-cv/imsamp"
+	"github.com/jvlmdr/shift-invar/go/data"
 	"github.com/nfnt/resize"
 )
 
@@ -96,6 +97,12 @@ func main() {
 	interior := image.Rect(0, 0, *width, *height).Add(image.Pt(*pad, *pad))
 	size := image.Pt(*pad*2+*width, *pad*2+*height)
 	region := detect.PadRect{size, interior}
+	// Options for choosing rectangles.
+	exampleOpts := data.ExampleOpts{
+		AspectReject: *aspectReject,
+		FitMode:      *resizeFor,
+		MaxScale:     *maxTrainScale,
+	}
 	// FPPIs at which to compute miss rate.
 	fppis := make([]float64, 9)
 	floats.LogSpan(fppis, 1e-2, 1)
@@ -123,7 +130,7 @@ func main() {
 	}
 
 	// Load raw annotations of dataset.
-	dataset, err := loadDataset(*datasetName, *datasetSpec)
+	dataset, err := data.Load(*datasetName, *datasetSpec)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -136,7 +143,7 @@ func main() {
 		trainIms := mergeExcept(folds, i)
 		testIms := folds[i]
 		// Extract positive examples and negative images.
-		trainData, err := extractTrainingData(dataset, trainIms, region, *aspectReject, *resizeFor, *maxTrainScale)
+		trainData, err := data.ExtractTrainingSet(dataset, trainIms, region, exampleOpts)
 		if err != nil {
 			log.Fatal(err)
 		}

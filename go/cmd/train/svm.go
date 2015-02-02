@@ -11,13 +11,15 @@ import (
 	"github.com/jvlmdr/go-cv/imsamp"
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-svm/svm"
+	"github.com/jvlmdr/shift-invar/go/data"
+	"github.com/jvlmdr/shift-invar/go/vecset"
 	"github.com/nfnt/resize"
 )
 
 type SVMOpts struct {
 }
 
-func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float64, region detect.PadRect, addFlip bool, cpos, cneg, lambda float64, interp resize.InterpolationFunction) (*rimg64.Multi, float64, error) {
+func trainSVM(trainData *data.TrainingSet, dataset data.ImageSet, phi feat.Image, bias float64, region detect.PadRect, addFlip bool, cpos, cneg, lambda float64, interp resize.InterpolationFunction) (*rimg64.Multi, float64, error) {
 	// Load training data.
 	// Positive examples are extracted and stored as vectors.
 	// Negative examples are represented as indices into an image.
@@ -79,7 +81,7 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 
 	// Size of feature image.
 	size := phi.Size(region.Size)
-	var neg []*WindowSet
+	var neg []*vecset.WindowSet
 	for _, name := range trainData.NegImages {
 		log.Println("load negative image:", name)
 		t := time.Now()
@@ -97,7 +99,7 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 			return nil, 0, err
 		}
 		durFeat := time.Since(t)
-		set := new(WindowSet)
+		set := new(vecset.WindowSet)
 		set.Image = x
 		set.Size = size
 		for u := 0; u < x.Width-size.X+1; u++ {
@@ -119,12 +121,12 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 	}
 
 	var (
-		x []svm.Set
+		x []vecset.Set
 		y []float64
 		c []float64
 	)
 	// Add positive examples as a set of vectors.
-	x = append(x, svm.Slice(pos))
+	x = append(x, vecset.Slice(pos))
 	for _ = range pos {
 		y = append(y, 1)
 		c = append(c, cpos/lambda/float64(len(pos)))
@@ -140,7 +142,7 @@ func trainSVM(trainData *TrainData, dataset Dataset, phi feat.Image, bias float6
 		}
 	}
 
-	w, err := svm.Train(NewUnion(x), y, c,
+	w, err := svm.Train(vecset.NewUnion(x), y, c,
 		func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[int]float64) (bool, error) {
 			if epoch < 4 {
 				return false, nil

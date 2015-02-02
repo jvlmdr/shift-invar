@@ -1,14 +1,12 @@
-package main
+package vecset
 
 import (
 	"fmt"
 	"sort"
-
-	"github.com/jvlmdr/go-svm/svm"
 )
 
 type Union struct {
-	Sets []svm.Set
+	Sets []Set
 	cdf  []int
 }
 
@@ -42,19 +40,19 @@ func (u *Union) At(i int) []float64 {
 	return u.Sets[s].At(t)
 }
 
-func NewUnion(sets []svm.Set) *Union {
+func NewUnion(sets []Set) *Union {
 	u := new(Union)
 	u.Sets = sets
 	u.cdf = cumSum(setLens(sets))
 	return u
 }
 
-func (u *Union) Append(set svm.Set) {
+func (u *Union) Append(set Set) {
 	u.Sets = append(u.Sets, set)
 	u.cdf = append(u.cdf, u.cdf[len(u.cdf)-1]+set.Len())
 }
 
-func setLens(x []svm.Set) []int {
+func setLens(x []Set) []int {
 	n := make([]int, len(x))
 	for i, xi := range x {
 		n[i] = xi.Len()
