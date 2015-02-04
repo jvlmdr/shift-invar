@@ -67,9 +67,14 @@ func main() {
 		maxTrainScale = flag.Float64("max-train-scale", 2, "Discount examples which would need to be scaled more than this")
 		flip          = flag.Bool("flip", false, "Incorporate horizontally mirrored examples?")
 		trainInterp   = flag.Int("train-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
+		// Negative example configuration.
+		maxNegTrainFrac = flag.Float64("max-neg-train-frac", 1, "Max fraction to use of negative training images in dataset")
+		maxNegTrainNum  = flag.Int("max-neg-train-num", 0, "Max number of negative training images (zero means no max)")
 
-		//	// Train configuration.
-		//	lambda    = flag.Float64("lambda", 1e-4, "Regularization coefficient")
+		// Train configuration.
+		gamma     = flag.Float64("gamma", 0.5, "Weight of positive class")
+		lambda    = flag.Float64("lambda", 1, "Regularization coefficient")
+		numEpochs = flag.Int("epochs", 8, "Number of training epochs")
 		//	circulant = flag.Bool("circulant", false, "Use circulant matrix? (or Toeplitz)")
 		//	uniform   = flag.Bool("uniform", false, "Use uniform normalization? (ensure semidefinite)")
 		//	tol       = flag.Float64("tol", 1e-6, "Tolerance for convergence of training")
@@ -143,34 +148,60 @@ func main() {
 		trainIms := mergeExcept(folds, i)
 		testIms := folds[i]
 		// Extract positive examples and negative images.
-		trainData, err := data.ExtractTrainingSet(dataset, trainIms, region, exampleOpts)
+		examples, err := data.ExtractTrainingSet(dataset, trainIms, region, exampleOpts)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if len(trainData.PosImages) == 0 {
+		if len(examples.PosImages) == 0 {
 			log.Fatal("set of positive examples is empty")
 		}
-		if len(trainData.NegImages) == 0 {
+		if len(examples.NegImages) == 0 {
 			log.Fatal("set of negative images is empty")
 		}
+		// Take a random subset of the negative training images.
+		numNegIms := subsetSize(len(examples.NegImages), *maxNegTrainFrac, *maxNegTrainNum)
+		examples.NegImages = selectSubset(examples.NegImages, subset(len(examples.NegImages), numNegIms))
+		log.Println("number of negative images:", len(examples.NegImages))
+
 		// Obtain detector.
-		weights, bias, err := trainSVM(trainData, dataset, phi, 1, region, *flip, 0.5, 0.5, 1, resize.InterpolationFunction(*trainInterp))
+		weights, bias, err := trainSVM(examples, dataset, phi, 1, region, *flip, resize.InterpolationFunction(*trainInterp), *gamma, 1-*gamma, *lambda, *numEpochs)
 		if err != nil {
 			log.Fatal(err)
 		}
 		tmpl := &detect.FeatTmpl{weights, bias, region.Size, region.Int}
-		fmt.Println("fold", i)
 
-		trainPerf, err := test(tmpl, trainIms, dataset, phi, searchOpts, *minMatch, *minIgnore, fppis)
-		if err != nil {
-			log.Fatal(err)
-		}
 		testPerf, err := test(tmpl, testIms, dataset, phi, searchOpts, *minMatch, *minIgnore, fppis)
 		if err != nil {
 			log.Fatal(err)
 		}
+		fmt.Printf("fold %d, test miss rate %.3g\n", i, testPerf)
+		trainPerf, err := test(tmpl, trainIms, dataset, phi, searchOpts, *minMatch, *minIgnore, fppis)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("fold %d, train miss rate %.3g\n", i, trainPerf)
 		perfs[i] = testPerf
-		fmt.Printf("fold %d, train miss rate %.3g, test miss rate %.3g\n", i, trainPerf, testPerf)
 	}
 	fmt.Println(perfs)
+}
+
+func subsetSize(n int, maxFrac float64, maxNum int) int {
+	if maxFrac < 1 {
+		if maxFrac <= 0 {
+			return 0
+		}
+		n = min(n, int(maxFrac*float64(n)))
+	}
+	if maxNum > 0 {
+		n = min(n, maxNum)
+	}
+	return n
+}
+
+func selectSubset(x []string, ind []int) []string {
+	y := make([]string, len(ind))
+	for i, j := range ind {
+		y[i] = x[j]
+	}
+	return y
 }

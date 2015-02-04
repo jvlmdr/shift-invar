@@ -15,7 +15,7 @@ import (
 type SVMOpts struct {
 }
 
-func trainSVM(trainData *data.TrainingSet, dataset data.ImageSet, phi feat.Image, bias float64, region detect.PadRect, addFlip bool, cpos, cneg, lambda float64, interp resize.InterpolationFunction) (*rimg64.Multi, float64, error) {
+func trainSVM(trainData *data.TrainingSet, dataset data.ImageSet, phi feat.Image, bias float64, region detect.PadRect, addFlip bool, interp resize.InterpolationFunction, cpos, cneg, lambda float64, numEpochs int) (*rimg64.Multi, float64, error) {
 	// Load training data.
 	// Size of feature image.
 	size := phi.Size(region.Size)
@@ -64,7 +64,7 @@ func trainSVM(trainData *data.TrainingSet, dataset data.ImageSet, phi feat.Image
 
 	w, err := svm.Train(vecset.NewUnion(x), y, c,
 		func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[int]float64) (bool, error) {
-			if epoch < 4 {
+			if epoch < numEpochs {
 				return false, nil
 			}
 			return true, nil

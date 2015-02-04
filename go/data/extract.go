@@ -16,6 +16,9 @@ import (
 func PosExamples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, addFlip bool, interp resize.InterpolationFunction) ([][]float64, error) {
 	var pos [][]float64
 	for _, name := range ims {
+		if !dataset.CanTrain(name) {
+			continue
+		}
 		log.Println("load positive image:", name)
 		t := time.Now()
 		file := dataset.File(name)
@@ -81,8 +84,12 @@ func flipImageX(src image.Image) image.Image {
 }
 
 func NegWindowSets(negIms []string, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, interp resize.InterpolationFunction) ([]*vecset.WindowSet, error) {
+	featSize := phi.Size(shape.Size)
 	var neg []*vecset.WindowSet
 	for _, name := range negIms {
+		if !dataset.CanTrain(name) {
+			continue
+		}
 		log.Println("load negative image:", name)
 		t := time.Now()
 		file := dataset.File(name)
@@ -101,9 +108,9 @@ func NegWindowSets(negIms []string, dataset ImageSet, phi feat.Image, bias float
 		durFeat := time.Since(t)
 		set := new(vecset.WindowSet)
 		set.Image = x
-		set.Size = shape.Size
-		for u := 0; u < x.Width-shape.Size.X+1; u++ {
-			for v := 0; v < x.Height-shape.Size.Y+1; v++ {
+		set.Size = featSize
+		for u := 0; u < x.Width-featSize.X+1; u++ {
+			for v := 0; v < x.Height-featSize.Y+1; v++ {
 				set.Windows = append(set.Windows, image.Pt(u, v))
 			}
 		}

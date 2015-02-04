@@ -11,8 +11,17 @@ import (
 )
 
 func test(tmpl *detect.FeatTmpl, ims []string, dataset data.ImageSet, phi feat.Image, opts detect.MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
-	var imvals []*detect.ValSet
+	var subset []string
 	for _, name := range ims {
+		if dataset.CanTest(name) {
+			subset = append(subset, name)
+		}
+	}
+	ims = subset
+
+	var imvals []*detect.ValSet
+	for i, name := range ims {
+		log.Printf("test image %d / %d: %s", i+1, len(ims), name)
 		// Load image.
 		file := dataset.File(name)
 		t := time.Now()
@@ -37,6 +46,9 @@ func test(tmpl *detect.FeatTmpl, ims []string, dataset data.ImageSet, phi feat.I
 	valset := detect.MergeValSets(imvals...)
 	// Get average miss rate.
 	rates := detect.MissRateAtFPPIs(valset, fppis)
+	for i := range rates {
+		log.Printf("fppi %g, miss rate %g", fppis[i], rates[i])
+	}
 	perf := floats.Sum(rates) / float64(len(rates))
 	return perf, nil
 }
