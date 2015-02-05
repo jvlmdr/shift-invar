@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"os"
 
 	"github.com/jvlmdr/go-cv/featset"
 	"github.com/jvlmdr/go-cv/hog"
+	"github.com/jvlmdr/go-file/fileutil"
 	"github.com/jvlmdr/go-pbs-pro/dstrfn"
 	"github.com/jvlmdr/shift-invar/go/data"
 	"github.com/nfnt/resize"
@@ -53,8 +55,8 @@ func main() {
 	}
 
 	params := enumerateParams(set)
-	for i, p := range params {
-		fmt.Println(i, p.Hash(), p.ID())
+	for _, p := range params {
+		fmt.Printf("%s\t%s\n", p.Hash(), p.ID())
 	}
 
 	// Load data and determine cross-validation splits.
@@ -64,24 +66,38 @@ func main() {
 		log.Fatal(err)
 	}
 	// Split images into folds.
-	// TODO: Cache splits due to their randomness.
-	foldIms := split(dataset.Images(), *numFolds)
+	// Cache splits due to their randomness.
+	var foldIms [][]string
+	err = fileutil.Cache(&foldIms, "folds.json", func() [][]string {
+		return split(dataset.Images(), *numFolds)
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	// Learn template for each configuration for each fold.
+	// Save weights to file and avoid re-computing weights
+	// for configurations which have a file.
 	trainInputs := make([]TrainInput, 0, len(foldIms)*len(params))
 	for fold := range foldIms {
 		for _, p := range params {
 			trainInputs = append(trainInputs, TrainInput{fold, p})
 		}
 	}
-
-	// Train a detector for every configuration.
-	// Save weights to file and avoid re-computing weights
-	// for configurations which have a file.
-	var tmpls []string
-	// TODO: Identify subset of inputs for which output file does not exist.
-	err = dstrfn.MapFunc("train", &tmpls, trainInputs, foldIms, *datasetName, *datasetSpec, *pad, exampleOpts, *biasCoeff, *flip, resize.InterpolationFunction(*trainInterp))
-	if err != nil {
-		log.Fatalln("map(train):", err)
+	var trainSubset []TrainInput
+	for _, p := range trainInputs {
+		if _, err := os.Stat(p.TmplFile()); os.IsNotExist(err) {
+			trainSubset = append(trainSubset, p)
+		} else if err != nil {
+			log.Fatalln("check if template cache exists:", err)
+		}
+	}
+	if len(trainSubset) > 0 {
+		log.Printf("number of detectors to train: %d / %d", len(trainSubset), len(trainInputs))
+		err = dstrfn.MapFunc("train", new([]string), trainSubset, foldIms, *datasetName, *datasetSpec, *pad, exampleOpts, *biasCoeff, *flip, resize.InterpolationFunction(*trainInterp))
+		if err != nil {
+			log.Fatalln("map(train):", err)
+		}
 	}
 
 	//	// Test each detector on training and validation sets.

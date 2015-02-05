@@ -28,7 +28,12 @@ func (x TrainInput) Hash() string {
 	return fmt.Sprintf("param-%s-fold-%d", x.Param.Hash(), x.Fold)
 }
 
+func (x TrainInput) TmplFile() string {
+	return fmt.Sprintf("tmpl-%s.gob", x.Hash())
+}
+
 func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, bias float64, addFlip bool, interp resize.InterpolationFunction) (string, error) {
+	fmt.Printf("%s\t%s\n", cfg.Param.Hash(), cfg.Param.ID())
 	// Determine dimensions of template.
 	region := detect.PadRect{
 		Size: image.Pt(cfg.Size.X+pad*2, cfg.Size.Y+pad*2),
@@ -123,9 +128,8 @@ func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, 
 		Size:     region.Size,
 		Interior: region.Int,
 	}
-	tmplFile := fmt.Sprintf("tmpl-%s.gob", cfg.Hash())
-	if err := fileutil.SaveExt(tmplFile, tmpl); err != nil {
+	if err := fileutil.SaveExt(cfg.TmplFile(), tmpl); err != nil {
 		return "", err
 	}
-	return tmplFile, nil
+	return cfg.TmplFile(), nil
 }

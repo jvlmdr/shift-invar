@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha1"
+	"encoding/json"
 	"fmt"
 	"image"
 
@@ -33,7 +34,13 @@ type Param struct {
 }
 
 func (p Param) ID() string {
-	return fmt.Sprintf("%+v", p)
+	// Use JSON string instead of fmt.Sprintf("%+v") since pointers
+	// will not traversed and their addresses will be displayed.
+	repr, err := json.Marshal(p)
+	if err != nil {
+		panic(fmt.Sprintf("encode struct: %v", err))
+	}
+	return string(repr)
 }
 
 func (p Param) Hash() string {
