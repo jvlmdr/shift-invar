@@ -55,7 +55,7 @@ func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, 
 	}
 	// Take subset of negative images.
 	numNegIms := int(cfg.NegFrac * float64(len(examples.NegImages)))
-	negIms := selectSubset(examples.NegImages, subset(len(examples.NegImages), numNegIms))
+	negIms := selectSubset(examples.NegImages, randSubset(len(examples.NegImages), numNegIms))
 	log.Println("number of negative images:", len(negIms))
 
 	// Positive examples are extracted and stored as vectors.

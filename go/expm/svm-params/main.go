@@ -7,6 +7,9 @@ import (
 	"log"
 	"os"
 
+	"github.com/gonum/floats"
+	"github.com/jvlmdr/go-cv/detect"
+	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/featset"
 	"github.com/jvlmdr/go-cv/hog"
 	"github.com/jvlmdr/go-file/fileutil"
@@ -28,6 +31,15 @@ func main() {
 		biasCoeff     = flag.Float64("bias-coeff", 1, "Bias coefficient, zero for no bias")
 		flip          = flag.Bool("flip", false, "Incorporate horizontally mirrored examples?")
 		trainInterp   = flag.Int("train-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
+		// Test configuration.
+		pyrStep      = flag.Float64("pyr-step", 1.07, "Geometric scale steps in image pyramid")
+		maxTestScale = flag.Float64("max-test-scale", 2, "Do not zoom in further than this")
+		testInterp   = flag.Int("test-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
+		detsPerIm    = flag.Int("dets-per-im", 0, "Maximum number of detections per image")
+		testMargin   = flag.Int("margin", 0, "Margin to add to image before taking features at test time")
+		localMax     = flag.Bool("local-max", true, "Suppress detections which are less than a neighbor?")
+		minMatch     = flag.Float64("min-match", 0.5, "Minimum intersection-over-union to validate a true positive")
+		minIgnore    = flag.Float64("min-ignore", 0.5, "Minimum that a region can be covered to be ignored")
 	)
 	flag.Parse()
 	dstrfn.ExecIfSlave()
@@ -47,11 +59,30 @@ func main() {
 			{"hog", hog.Transform{hog.FGMRConfig(8)}},
 		},
 	}
+	// FPPIs at which to compute miss rate.
+	fppis := make([]float64, 9)
+	floats.LogSpan(fppis, 1e-2, 1)
 
+	// Train configuration.
 	exampleOpts := data.ExampleOpts{
 		AspectReject: *aspectReject,
 		FitMode:      *resizeFor,
 		MaxScale:     *maxTrainScale,
+	}
+
+	// Test configuration.
+	// Transform and Overlap are taken from Param.
+	searchOpts := MultiScaleOpts{
+		MaxScale:  *maxTestScale,
+		PyrStep:   *pyrStep,
+		Interp:    resize.InterpolationFunction(*testInterp),
+		PadMargin: feat.UniformMargin(*testMargin),
+		DetFilter: detect.DetFilter{
+			LocalMax: *localMax,
+			MinScore: 0,
+		},
+		SupprMaxNum: *detsPerIm,
+		ExpMinScore: 0,
 	}
 
 	params := enumerateParams(set)
@@ -98,11 +129,24 @@ func main() {
 		if err != nil {
 			log.Fatalln("map(train):", err)
 		}
+	} else {
+		log.Println("all templates have cache file")
 	}
 
-	//	// Test each detector on training and validation sets.
-	//	// Skip cached results.
-	//	dstrfn.Map()
+	// Test each detector.
+	testInputs := make([]TestInput, 0, len(foldIms)*len(params))
+	for fold := range foldIms {
+		for _, p := range params {
+			testInputs = append(testInputs, TestInput{fold, p})
+		}
+	}
+	// TODO: Skip cached results.
+	var perfs []float64
+	err = dstrfn.MapFunc("test", &perfs, testInputs, foldIms, *datasetName, *datasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+	if err != nil {
+		log.Fatalln("map(test):", err)
+	}
 
-	//	// Dump all results to text file.
+	// Dump all results to text file.
+	// TODO: Implement.
 }

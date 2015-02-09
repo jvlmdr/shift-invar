@@ -48,7 +48,7 @@ func mergeExcept(x [][]string, j int) []string {
 
 // Subset returns a random length-m subset of 0..n-1.
 // Elements are ordered.
-func subset(n, m int) []int {
+func randSubset(n, m int) []int {
 	p := rand.Perm(n)[:m]
 	sort.Ints(p)
 	return p
