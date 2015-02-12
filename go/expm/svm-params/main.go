@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"image"
 	"log"
 	"math"
 	"os"
@@ -13,13 +12,18 @@ import (
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
-	"github.com/jvlmdr/go-cv/featset"
-	"github.com/jvlmdr/go-cv/hog"
 	"github.com/jvlmdr/go-file/fileutil"
 	"github.com/jvlmdr/go-pbs-pro/dstrfn"
 	"github.com/jvlmdr/shift-invar/go/data"
 	"github.com/nfnt/resize"
 )
+
+func init() {
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage:", os.Args[0], "[flags] params.json")
+		flag.PrintDefaults()
+	}
+}
 
 func main() {
 	var (
@@ -47,21 +51,17 @@ func main() {
 	flag.Parse()
 	dstrfn.ExecIfSlave()
 
-	set := &ParamSet{
-		Lambda:  []float64{1e-4, 1e-2, 1, 1e2},
-		Gamma:   []float64{0.1, 0.3, 0.5, 0.7, 0.9},
-		Epochs:  []int{2, 4},
-		NegFrac: []float64{0.1, 0.2},
-		Overlap: []OverlapMessage{
-			{"inter-over-union", InterOverUnion{0.3}},
-			{"inter-over-min", InterOverMin{0.65}},
-		},
-		Size: []image.Point{{32, 96}},
-		Feat: []featset.ImageMarshaler{
-			{"hog", hog.Transform{hog.FGMRConfig(4)}},
-			{"hog", hog.Transform{hog.FGMRConfig(8)}},
-		},
+	if flag.NArg() != 1 {
+		flag.Usage()
+		os.Exit(1)
 	}
+	paramsFile := flag.Arg(0)
+
+	set := new(ParamSet)
+	if err := fileutil.LoadExt(paramsFile, set); err != nil {
+		log.Fatal(err)
+	}
+
 	// FPPIs at which to compute miss rate.
 	fppis := make([]float64, 9)
 	floats.LogSpan(fppis, 1e-2, 1)
