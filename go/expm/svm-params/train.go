@@ -32,17 +32,17 @@ func (x TrainInput) TmplFile() string {
 	return fmt.Sprintf("tmpl-%s.gob", x.Hash())
 }
 
-func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, bias float64, addFlip bool, interp resize.InterpolationFunction) (string, error) {
-	fmt.Printf("%s\t%s\n", cfg.Param.Hash(), cfg.Param.ID())
+func train(u TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, bias float64, addFlip bool, interp resize.InterpolationFunction) (string, error) {
+	fmt.Printf("%s\t%s\n", u.Param.Hash(), u.Param.ID())
 	// Determine dimensions of template.
 	region := detect.PadRect{
-		Size: image.Pt(cfg.Size.X+pad*2, cfg.Size.Y+pad*2),
-		Int:  image.Rectangle{image.ZP, cfg.Size}.Add(image.Pt(pad, pad)),
+		Size: image.Pt(u.Size.X+pad*2, u.Size.Y+pad*2),
+		Int:  image.Rectangle{image.ZP, u.Size}.Add(image.Pt(pad, pad)),
 	}
-	phi := cfg.Feat.Transform()
+	phi := u.Feat.Transform()
 
 	// Determine training images.
-	trainIms := mergeExcept(foldIms, cfg.Fold)
+	trainIms := mergeExcept(foldIms, u.Fold)
 	// Re-load dataset on execution host.
 	dataset, err := data.Load(datasetName, datasetSpec)
 	if err != nil {
@@ -54,7 +54,7 @@ func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, 
 		log.Fatal(err)
 	}
 	// Take subset of negative images.
-	numNegIms := int(cfg.NegFrac * float64(len(examples.NegImages)))
+	numNegIms := int(u.NegFrac * float64(len(examples.NegImages)))
 	negIms := selectSubset(examples.NegImages, randSubset(len(examples.NegImages), numNegIms))
 	log.Println("number of negative images:", len(negIms))
 
@@ -89,7 +89,7 @@ func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, 
 	x = append(x, vecset.Slice(pos))
 	for _ = range pos {
 		y = append(y, 1)
-		c = append(c, cfg.Gamma/cfg.Lambda/float64(len(pos)))
+		c = append(c, u.Gamma/u.Lambda/float64(len(pos)))
 	}
 	// Add each set of negative vectors.
 	for i := range neg {
@@ -98,13 +98,13 @@ func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, 
 		// Labels and costs for every positive and negative example.
 		for j := 0; j < ni; j++ {
 			y = append(y, -1)
-			c = append(c, (1-cfg.Gamma)/cfg.Lambda/float64(numNegWindows))
+			c = append(c, (1-u.Gamma)/u.Lambda/float64(numNegWindows))
 		}
 	}
 
 	weights, err := svm.Train(vecset.NewUnion(x), y, c,
 		func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[int]float64) (bool, error) {
-			if epoch < cfg.Epochs {
+			if epoch < u.Epochs {
 				return false, nil
 			}
 			return true, nil
@@ -128,8 +128,8 @@ func train(cfg TrainInput, foldIms [][]string, datasetName, datasetSpec string, 
 		Size:     region.Size,
 		Interior: region.Int,
 	}
-	if err := fileutil.SaveExt(cfg.TmplFile(), tmpl); err != nil {
+	if err := fileutil.SaveExt(u.TmplFile(), tmpl); err != nil {
 		return "", err
 	}
-	return cfg.TmplFile(), nil
+	return u.TmplFile(), nil
 }

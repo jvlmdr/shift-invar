@@ -140,11 +140,35 @@ func main() {
 			testInputs = append(testInputs, TestInput{fold, p})
 		}
 	}
-	// TODO: Skip cached results.
-	var perfs []float64
-	err = dstrfn.MapFunc("test", &perfs, testInputs, foldIms, *datasetName, *datasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
-	if err != nil {
-		log.Fatalln("map(test):", err)
+	perfs := make(map[string]float64)
+	// Identify which params have not been tested yet.
+	var testSubset []TestInput
+	for _, x := range testInputs {
+		if _, err := os.Stat(x.PerfFile()); os.IsNotExist(err) {
+			testSubset = append(testSubset, x)
+			continue
+		} else if err != nil {
+			log.Fatal(err)
+		}
+		// Attempt to load file.
+		var perf float64
+		if err := fileutil.LoadExt(x.PerfFile(), &perf); err != nil {
+			log.Fatal(err)
+		}
+		perfs[x.Hash()] = perf
+	}
+
+	if len(testSubset) > 0 {
+		var out []float64
+		err := dstrfn.MapFunc("test", &out, testSubset, foldIms, *datasetName, *datasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+		if err != nil {
+			log.Fatalln("map(test):", err)
+		}
+		for i, x := range testSubset {
+			perfs[x.Hash()] = out[i]
+		}
+	} else {
+		log.Println("all results have cache file")
 	}
 
 	// Dump all results to text file.

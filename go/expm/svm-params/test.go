@@ -37,6 +37,10 @@ func (x TestInput) TmplFile() string {
 	return fmt.Sprintf("tmpl-%s.gob", x.Hash())
 }
 
+func (x TestInput) PerfFile() string {
+	return fmt.Sprintf("perf-%s.json", x.Hash())
+}
+
 // Remove feat.Pad since feat.Pad.Extend cannot be marshaled.
 type MultiScaleOpts struct {
 	MaxScale float64
@@ -51,8 +55,8 @@ type MultiScaleOpts struct {
 	ExpMinScore float64
 }
 
-func test(cfg TestInput, foldIms [][]string, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
-	fmt.Printf("%s\t%s\n", cfg.Param.Hash(), cfg.Param.ID())
+func test(x TestInput, foldIms [][]string, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
+	fmt.Printf("%s\t%s\n", x.Param.Hash(), x.Param.ID())
 	opts := detect.MultiScaleOpts{
 		MaxScale:    optsMsg.MaxScale,
 		PyrStep:     optsMsg.PyrStep,
@@ -63,17 +67,17 @@ func test(cfg TestInput, foldIms [][]string, datasetName, datasetSpec string, pa
 	}
 	opts.DetFilter.MinScore = math.Log(optsMsg.ExpMinScore)
 	// Use Feat and Overlap from Param.
-	opts.Transform = cfg.Feat.Transform()
-	opts.Overlap = cfg.Overlap.Spec.Eval
+	opts.Transform = x.Feat.Transform()
+	opts.Overlap = x.Overlap.Spec.Eval
 	opts.Pad.Extend = imsamp.Continue
 
 	// Load template from disk.
 	tmpl := new(detect.FeatTmpl)
-	if err := fileutil.LoadExt(cfg.TmplFile(), tmpl); err != nil {
+	if err := fileutil.LoadExt(x.TmplFile(), tmpl); err != nil {
 		return 0, err
 	}
 
-	ims := foldIms[cfg.Fold]
+	ims := foldIms[x.Fold]
 	// Re-load dataset on execution host.
 	dataset, err := data.Load(datasetName, datasetSpec)
 	if err != nil {
@@ -88,30 +92,39 @@ func test(cfg TestInput, foldIms [][]string, datasetName, datasetSpec string, pa
 	}
 	ims = subset
 
+	// Cache validated detections.
 	var imvals []*detect.ValSet
-	for i, name := range ims {
-		log.Printf("test image %d / %d: %s", i+1, len(ims), name)
-		// Load image.
-		file := dataset.File(name)
-		t := time.Now()
-		im, err := loadImage(file)
-		if err != nil {
-			log.Printf("load test image: %s, error: %v", file, err)
-			continue
+	err = fileutil.Cache(&imvals, fmt.Sprintf("val-dets-%s.json", x.Hash()), func() ([]*detect.ValSet, error) {
+		var imvals []*detect.ValSet // Shadow variable in parent scope.
+		for i, name := range ims {
+			log.Printf("test image %d / %d: %s", i+1, len(ims), name)
+			// Load image.
+			file := dataset.File(name)
+			t := time.Now()
+			im, err := loadImage(file)
+			if err != nil {
+				log.Printf("load test image: %s, error: %v", file, err)
+				continue
+			}
+			durLoad := time.Since(t)
+			dets, durSearch, err := detect.MultiScale(im, tmpl, opts)
+			if err != nil {
+				return nil, err
+			}
+			annot := dataset.Annot(name)
+			imval := detect.Validate(dets, annot.Instances, annot.Ignore, minMatchIOU, minIgnoreCover)
+			imvals = append(imvals, imval.Set())
+			log.Printf(
+				"load %v, resize %v, feat %v, slide %v, suppr %v",
+				durLoad, durSearch.Resize, durSearch.Feat, durSearch.Slide, durSearch.Suppr,
+			)
 		}
-		durLoad := time.Since(t)
-		dets, durSearch, err := detect.MultiScale(im, tmpl, opts)
-		if err != nil {
-			return 0, err
-		}
-		annot := dataset.Annot(name)
-		imval := detect.Validate(dets, annot.Instances, annot.Ignore, minMatchIOU, minIgnoreCover)
-		imvals = append(imvals, imval.Set())
-		log.Printf(
-			"load %v, resize %v, feat %v, slide %v, suppr %v",
-			durLoad, durSearch.Resize, durSearch.Feat, durSearch.Slide, durSearch.Suppr,
-		)
+		return imvals, nil
+	})
+	if err != nil {
+		return 0, err
 	}
+
 	valset := detect.MergeValSets(imvals...)
 	// Get average miss rate.
 	rates := detect.MissRateAtFPPIs(valset, fppis)
@@ -119,6 +132,9 @@ func test(cfg TestInput, foldIms [][]string, datasetName, datasetSpec string, pa
 		log.Printf("fppi %g, miss rate %g", fppis[i], rates[i])
 	}
 	perf := floats.Sum(rates) / float64(len(rates))
+	if err := fileutil.SaveExt(x.PerfFile(), perf); err != nil {
+		return 0, err
+	}
 	return perf, nil
 }
 
