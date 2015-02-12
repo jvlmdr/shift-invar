@@ -24,23 +24,6 @@ func init() {
 	dstrfn.RegisterMap("test", false, dstrfn.ConfigFunc(test))
 }
 
-type TestInput struct {
-	Fold int
-	Param
-}
-
-func (x TestInput) Hash() string {
-	return fmt.Sprintf("param-%s-fold-%d", x.Param.Hash(), x.Fold)
-}
-
-func (x TestInput) TmplFile() string {
-	return fmt.Sprintf("tmpl-%s.gob", x.Hash())
-}
-
-func (x TestInput) PerfFile() string {
-	return fmt.Sprintf("perf-%s.json", x.Hash())
-}
-
 // Remove feat.Pad since feat.Pad.Extend cannot be marshaled.
 type MultiScaleOpts struct {
 	MaxScale float64
@@ -55,7 +38,7 @@ type MultiScaleOpts struct {
 	ExpMinScore float64
 }
 
-func test(x TestInput, foldIms [][]string, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
+func test(x TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
 	fmt.Printf("%s\t%s\n", x.Param.Hash(), x.Param.ID())
 	opts := detect.MultiScaleOpts{
 		MaxScale:    optsMsg.MaxScale,

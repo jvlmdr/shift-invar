@@ -32,6 +32,10 @@ func (x TrainInput) TmplFile() string {
 	return fmt.Sprintf("tmpl-%s.gob", x.Hash())
 }
 
+func (x TrainInput) PerfFile() string {
+	return fmt.Sprintf("perf-%s.json", x.Hash())
+}
+
 func train(u TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, bias float64, addFlip bool, interp resize.InterpolationFunction) (string, error) {
 	fmt.Printf("%s\t%s\n", u.Param.Hash(), u.Param.ID())
 	// Determine dimensions of template.

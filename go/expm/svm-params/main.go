@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"image"
 	"log"
 	"os"
+	"reflect"
 
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
@@ -134,15 +136,15 @@ func main() {
 	}
 
 	// Test each detector.
-	testInputs := make([]TestInput, 0, len(foldIms)*len(params))
+	testInputs := make([]TrainInput, 0, len(foldIms)*len(params))
 	for fold := range foldIms {
 		for _, p := range params {
-			testInputs = append(testInputs, TestInput{fold, p})
+			testInputs = append(testInputs, TrainInput{fold, p})
 		}
 	}
 	perfs := make(map[string]float64)
 	// Identify which params have not been tested yet.
-	var testSubset []TestInput
+	var testSubset []TrainInput
 	for _, x := range testInputs {
 		if _, err := os.Stat(x.PerfFile()); os.IsNotExist(err) {
 			testSubset = append(testSubset, x)
@@ -172,5 +174,35 @@ func main() {
 	}
 
 	// Dump all results to text file.
-	// TODO: Implement.
+	fields := []string{"Lambda", "Gamma", "Epochs", "NegFrac", "Overlap", "Size", "Feat"}
+	out, err := os.Create("perfs.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer out.Close()
+	buf := bufio.NewWriter(out)
+	defer buf.Flush()
+	fmt.Fprint(buf, "Hash")
+	for _, name := range fields {
+		fmt.Fprintf(buf, "\t%s", name)
+	}
+	for fold := range foldIms {
+		fmt.Fprintf(buf, "\t%d", fold)
+	}
+	fmt.Fprintln(buf)
+	for _, p := range params {
+		fmt.Fprint(buf, p.Hash())
+		for _, name := range fields {
+			fmt.Fprintf(buf, "\t%v", reflect.ValueOf(p).FieldByName(name).Interface())
+		}
+		for fold := range foldIms {
+			x := TrainInput{fold, p}
+			perf, ok := perfs[x.Hash()]
+			if !ok {
+				log.Fatalln("did not find perf:", x.Hash(), p.ID())
+			}
+			fmt.Fprintf(buf, "\t%g", perf)
+		}
+		fmt.Fprintln(buf)
+	}
 }
