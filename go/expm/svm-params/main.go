@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"math"
 	"os"
 	"reflect"
 
@@ -189,20 +190,27 @@ func main() {
 	for fold := range foldIms {
 		fmt.Fprintf(buf, "\t%d", fold)
 	}
-	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "\tMissRateMean\tMissRateStdDev")
 	for _, p := range params {
 		fmt.Fprint(buf, p.Hash())
 		for _, name := range fields {
 			fmt.Fprintf(buf, "\t%v", reflect.ValueOf(p).FieldByName(name).Interface())
 		}
-		for fold := range foldIms {
+		var mean, stddev float64
+		for fold := 0; fold < *numFolds; fold++ {
 			x := TrainInput{fold, p}
 			perf, ok := perfs[x.Hash()]
 			if !ok {
 				log.Fatalln("did not find perf:", x.Hash(), p.ID())
 			}
+			mean += perf
+			stddev += perf * perf
 			fmt.Fprintf(buf, "\t%g", perf)
 		}
+		mean = mean / float64(*numFolds)
+		stddev = math.Sqrt(stddev/float64(*numFolds) - mean*mean)
+		fmt.Fprintf(buf, "\t%g", mean)
+		fmt.Fprintf(buf, "\t%g", stddev)
 		fmt.Fprintln(buf)
 	}
 }
