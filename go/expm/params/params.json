@@ -1,7 +1,12 @@
 {
-	"Lambda": [1e-6, 1e-4, 1e-2, 1],
-	"Gamma": [0.1, 0.3, 0.5, 0.7, 0.9],
-	"Epochs": [2, 4],
+	"TrainerSets": [
+		{"Type": "svm", "Spec": {
+			"Bias": 1,
+			"Lambda": [1e-6, 1e-4, 1e-2, 1],
+			"Gamma": [0.1, 0.3, 0.5, 0.7, 0.9],
+			"Epochs": [2, 4]
+		}}
+	],
 	"NegFrac": [0.1, 0.2],
 	"Overlap": [
 		{"Type": "inter-over-union", "Spec": {"Min": 0.3}},

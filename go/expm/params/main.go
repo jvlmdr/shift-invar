@@ -7,7 +7,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"reflect"
 
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
@@ -35,7 +34,6 @@ func main() {
 		aspectReject  = flag.Float64("reject-aspect", 0, "Reject examples not between r and 1/r times aspect ratio")
 		resizeFor     = flag.String("resize-for", "area", "One of {area, width, height, fit, fill}")
 		maxTrainScale = flag.Float64("max-train-scale", 2, "Discount examples which would need to be scaled more than this")
-		biasCoeff     = flag.Float64("bias-coeff", 1, "Bias coefficient, zero for no bias")
 		flip          = flag.Bool("flip", false, "Incorporate horizontally mirrored examples?")
 		trainInterp   = flag.Int("train-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
 		// Test configuration.
@@ -57,8 +55,8 @@ func main() {
 	}
 	paramsFile := flag.Arg(0)
 
-	set := new(ParamSet)
-	if err := fileutil.LoadExt(paramsFile, set); err != nil {
+	paramset := new(ParamSet)
+	if err := fileutil.LoadExt(paramsFile, paramset); err != nil {
 		log.Fatal(err)
 	}
 
@@ -88,7 +86,7 @@ func main() {
 		ExpMinScore: 0,
 	}
 
-	params := enumerateParams(set)
+	params := paramset.Enumerate()
 	for _, p := range params {
 		fmt.Printf("%s\t%s\n", p.Hash(), p.ID())
 	}
@@ -128,7 +126,7 @@ func main() {
 	}
 	if len(trainSubset) > 0 {
 		log.Printf("number of detectors to train: %d / %d", len(trainSubset), len(trainInputs))
-		err = dstrfn.MapFunc("train", new([]string), trainSubset, foldIms, *datasetName, *datasetSpec, *pad, exampleOpts, *biasCoeff, *flip, resize.InterpolationFunction(*trainInterp))
+		err = dstrfn.MapFunc("train", new([]string), trainSubset, foldIms, *datasetName, *datasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp))
 		if err != nil {
 			log.Fatalln("map(train):", err)
 		}
@@ -175,7 +173,7 @@ func main() {
 	}
 
 	// Dump all results to text file.
-	fields := []string{"Lambda", "Gamma", "Epochs", "NegFrac", "Overlap", "Size", "Feat"}
+	fields := paramset.Fields()
 	out, err := os.Create("perfs.txt")
 	if err != nil {
 		log.Fatal(err)
@@ -194,7 +192,7 @@ func main() {
 	for _, p := range params {
 		fmt.Fprint(buf, p.Hash())
 		for _, name := range fields {
-			fmt.Fprintf(buf, "\t%v", reflect.ValueOf(p).FieldByName(name).Interface())
+			fmt.Fprintf(buf, "\t%s", p.Field(name))
 		}
 		var mean, stddev float64
 		for fold := 0; fold < *numFolds; fold++ {

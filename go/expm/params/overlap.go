@@ -108,7 +108,7 @@ func (f *OverlapMessage) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	// Initialize overlap and re-unmarshal.
+	// Initialize and re-unmarshal.
 	f.Spec = overlap
 	return json.Unmarshal(raw.Spec, f.Spec)
 }

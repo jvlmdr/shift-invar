@@ -61,3 +61,18 @@ func selectSubset(x []string, ind []int) []string {
 	}
 	return y
 }
+
+func union(x ...[]string) []string {
+	m := make(map[string]int)
+	for _, xi := range x {
+		for _, xij := range xi {
+			m[xij] += 1
+		}
+	}
+	var s []string
+	for k := range m {
+		s = append(s, k)
+	}
+	sort.Strings(s)
+	return s
+}
