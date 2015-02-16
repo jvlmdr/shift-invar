@@ -36,6 +36,9 @@ func (p Param) Hash() string {
 func (p Param) Field(name string) string {
 	if strings.HasPrefix(name, "Trainer.") {
 		name = strings.TrimPrefix(name, "Trainer.")
+		if name == "Type" {
+			return p.Trainer.Type
+		}
 		return p.Trainer.Spec.Field(name)
 	}
 	switch name {

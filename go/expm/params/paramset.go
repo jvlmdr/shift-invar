@@ -19,7 +19,7 @@ func (set *ParamSet) Fields() []string {
 	for i, t := range set.TrainerSets {
 		trainerFields[i] = t.Spec.Fields()
 	}
-	fields := []string{"NegFrac", "Overlap", "Size", "Feat"}
+	fields := []string{"NegFrac", "Overlap", "Size", "Feat", "Trainer.Type"}
 	for _, field := range union(trainerFields...) {
 		fields = append(fields, "Trainer."+field)
 	}

@@ -29,6 +29,10 @@ func init() {
 		func() (Trainer, error) { return new(SVMTrainer), nil },
 		func() (TrainerSet, error) { return new(SVMTrainerSet), nil },
 	)
+	DefaultTrainers.Register("set-svm",
+		func() (Trainer, error) { return new(SetSVMTrainer), nil },
+		func() (TrainerSet, error) { return new(SetSVMTrainerSet), nil },
+	)
 }
 
 type trainerType struct {
