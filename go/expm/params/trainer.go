@@ -12,12 +12,13 @@ import (
 // Trainer takes a training set which was extracted
 // using some configuration for training examples.
 type Trainer interface {
-	Train(examples *data.TrainingSet, dataset data.ImageSet, phi feat.Image, region detect.PadRect, flip bool, interp resize.InterpolationFunction) (*detect.FeatTmpl, error)
+	Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error)
 	Field(string) string
 }
 
 // TrainerSet describes a set of Trainers of the same type.
 type TrainerSet interface {
+	// Trainers can use the search options.
 	Enumerate() []Trainer
 	Fields() []string
 }
@@ -32,6 +33,10 @@ func init() {
 	DefaultTrainers.Register("set-svm",
 		func() (Trainer, error) { return new(SetSVMTrainer), nil },
 		func() (TrainerSet, error) { return new(SetSVMTrainerSet), nil },
+	)
+	DefaultTrainers.Register("hard-neg",
+		func() (Trainer, error) { return new(HardNegTrainer), nil },
+		func() (TrainerSet, error) { return new(HardNegTrainerSet), nil },
 	)
 }
 

@@ -49,7 +49,11 @@ func (p Param) Field(name string) string {
 	case "Size":
 		return strconv.Quote(p.Size.String())
 	case "Feat":
-		return strconv.Quote(fmt.Sprint(p.Feat))
+		repr, err := json.Marshal(p.Feat)
+		if err != nil {
+			panic(fmt.Sprintf("encode feature: %v", err))
+		}
+		return strconv.Quote(string(repr))
 	default:
 		return ""
 	}

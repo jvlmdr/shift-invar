@@ -13,18 +13,18 @@ import (
 	"github.com/nfnt/resize"
 )
 
-func PosExamples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, addFlip bool, interp resize.InterpolationFunction) ([][]float64, error) {
-	var pos [][]float64
+// Examples extracts windows from the image, resizes them to
+// the given size and computes their feature transform.
+// Does not check dataset.CanTrain or CanTest.
+func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, addFlip bool, interp resize.InterpolationFunction) ([][]float64, error) {
+	var examples [][]float64
 	for _, name := range ims {
-		if !dataset.CanTrain(name) {
-			continue
-		}
-		log.Println("load positive image:", name)
+		log.Println("load image:", name)
 		t := time.Now()
 		file := dataset.File(name)
 		im, err := loadImage(file)
 		if err != nil {
-			log.Printf("load positive image: %s, error: %v", file, err)
+			log.Printf("load image: %s, error: %v", file, err)
 			continue
 		}
 		durLoad := time.Since(t)
@@ -59,7 +59,7 @@ func PosExamples(ims []string, rects map[string][]image.Rectangle, dataset Image
 				if bias != 0 {
 					vec = append(vec, bias)
 				}
-				pos = append(pos, vec)
+				examples = append(examples, vec)
 			}
 		}
 		log.Printf(
@@ -68,7 +68,7 @@ func PosExamples(ims []string, rects map[string][]image.Rectangle, dataset Image
 			durFlip.Seconds()*1000, durFeat.Seconds()*1000,
 		)
 	}
-	return pos, nil
+	return examples, nil
 }
 
 func flipImageX(src image.Image) image.Image {
@@ -83,19 +83,19 @@ func flipImageX(src image.Image) image.Image {
 	return dst
 }
 
-func NegWindowSets(negIms []string, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, interp resize.InterpolationFunction) ([]*vecset.WindowSet, error) {
+// WindowSets computes the features of each image and returns
+// the set of all windows in the feature image.
+// Does not check dataset.CanTrain or CanTest.
+func WindowSets(ims []string, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, interp resize.InterpolationFunction) ([]*vecset.WindowSet, error) {
 	featSize := phi.Size(shape.Size)
-	var neg []*vecset.WindowSet
-	for _, name := range negIms {
-		if !dataset.CanTrain(name) {
-			continue
-		}
-		log.Println("load negative image:", name)
+	var sets []*vecset.WindowSet
+	for _, name := range ims {
+		log.Println("load image:", name)
 		t := time.Now()
 		file := dataset.File(name)
 		im, err := loadImage(file)
 		if err != nil {
-			log.Printf("load negative image: %s, error: %v", file, err)
+			log.Printf("load image: %s, error: %v", file, err)
 			continue
 		}
 		durLoad := time.Since(t)
@@ -115,11 +115,8 @@ func NegWindowSets(negIms []string, dataset ImageSet, phi feat.Image, bias float
 			}
 		}
 		set.Bias = bias
-		neg = append(neg, set)
+		sets = append(sets, set)
 		log.Printf("load %.3gms, feat %.3gms", durLoad.Seconds()*1000, durFeat.Seconds()*1000)
 	}
-	if len(neg) == 0 {
-		return nil, fmt.Errorf("empty negative set")
-	}
-	return neg, nil
+	return sets, nil
 }

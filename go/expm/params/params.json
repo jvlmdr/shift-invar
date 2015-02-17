@@ -11,6 +11,17 @@
 			"Lambda": [1e-6, 1e-4, 1e-2, 1],
 			"Gamma": [0.1, 0.3, 0.5, 0.7, 0.9],
 			"Epochs": [2, 4]
+		}},
+		{"Type": "hard-neg", "Spec": {
+			"Gamma": [0.1, 0.3, 0.5, 0.7, 0.9],
+			"InitNegCost": [0.1, 0.3, 0.5, 0.7, 0.9],
+			"Lambda": [1e-6, 1e-4, 1e-2, 1],
+			"Bias": 1,
+			"Epochs": [32],
+			"Rounds": [0, 1, 2, 3],
+			"InitNeg": [10000],
+			"PerRound": [1000],
+			"Accum": [true, false]
 		}}
 	],
 	"NegFrac": [0.1, 0.2],

@@ -73,7 +73,7 @@ func main() {
 
 	// Test configuration.
 	// Transform and Overlap are taken from Param.
-	searchOpts := MultiScaleOpts{
+	searchOpts := MultiScaleOptsMessage{
 		MaxScale:  *maxTestScale,
 		PyrStep:   *pyrStep,
 		Interp:    resize.InterpolationFunction(*testInterp),
@@ -126,7 +126,7 @@ func main() {
 	}
 	if len(trainSubset) > 0 {
 		log.Printf("number of detectors to train: %d / %d", len(trainSubset), len(trainInputs))
-		err = dstrfn.MapFunc("train", new([]string), trainSubset, foldIms, *datasetName, *datasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp))
+		err = dstrfn.MapFunc("train", new([]string), trainSubset, foldIms, *datasetName, *datasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
 		if err != nil {
 			log.Fatalln("map(train):", err)
 		}

@@ -3,6 +3,7 @@ package main
 import (
 	"image"
 	"math/rand"
+	"os"
 	"sort"
 )
 
@@ -75,4 +76,17 @@ func union(x ...[]string) []string {
 	}
 	sort.Strings(s)
 	return s
+}
+
+func loadImage(fname string) (image.Image, error) {
+	file, err := os.Open(fname)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	im, _, err := image.Decode(file)
+	if err != nil {
+		return nil, err
+	}
+	return im, nil
 }

@@ -2,12 +2,10 @@ package main
 
 import (
 	"fmt"
-	"image"
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
 	"math"
-	"os"
 	"time"
 
 	"github.com/gonum/floats"
@@ -25,35 +23,37 @@ func init() {
 }
 
 // Remove feat.Pad since feat.Pad.Extend cannot be marshaled.
-type MultiScaleOpts struct {
+type MultiScaleOptsMessage struct {
 	MaxScale float64
 	PyrStep  float64
 	Interp   resize.InterpolationFunction
 	// Replace Pad with PadMargin due to functional member.
 	PadMargin feat.Margin
 	detect.DetFilter
-	// Replace SupprFilter with SupprMaxNum due to functional member.
-	SupprMaxNum int
 	// Override DetFilter.MinScore.
 	ExpMinScore float64
+	// Replace SupprFilter with SupprMaxNum due to functional member.
+	SupprMaxNum int
 }
 
-func test(x TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOpts, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
-	fmt.Printf("%s\t%s\n", x.Param.Hash(), x.Param.ID())
-	opts := detect.MultiScaleOpts{
-		MaxScale:    optsMsg.MaxScale,
-		PyrStep:     optsMsg.PyrStep,
-		Interp:      optsMsg.Interp,
-		Pad:         feat.Pad{optsMsg.PadMargin, imsamp.Continue},
-		DetFilter:   optsMsg.DetFilter,
-		SupprFilter: detect.SupprFilter{optsMsg.SupprMaxNum, nil},
+func (msg MultiScaleOptsMessage) Content(phi feat.Image, padExtend imsamp.At, overlap detect.OverlapFunc) detect.MultiScaleOpts {
+	// Override DetFilter.MinScore.
+	detFilter := msg.DetFilter
+	detFilter.MinScore = math.Log(msg.ExpMinScore)
+	return detect.MultiScaleOpts{
+		MaxScale:    msg.MaxScale,
+		PyrStep:     msg.PyrStep,
+		Interp:      msg.Interp,
+		Transform:   phi,
+		Pad:         feat.Pad{msg.PadMargin, padExtend},
+		DetFilter:   detFilter,
+		SupprFilter: detect.SupprFilter{msg.SupprMaxNum, overlap},
 	}
-	opts.DetFilter.MinScore = math.Log(optsMsg.ExpMinScore)
-	// Use Feat and Overlap from Param.
-	opts.Transform = x.Feat.Transform()
-	opts.Overlap = x.Overlap.Spec.Eval
-	opts.Pad.Extend = imsamp.Continue
+}
 
+func test(x TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
+	fmt.Printf("%s\t%s\n", x.Param.Hash(), x.Param.ID())
+	opts := optsMsg.Content(x.Feat.Transform(), imsamp.Continue, x.Overlap.Spec.Eval)
 	// Load template from disk.
 	tmpl := new(detect.FeatTmpl)
 	if err := fileutil.LoadExt(x.TmplFile(), tmpl); err != nil {
@@ -119,17 +119,4 @@ func test(x TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad
 		return 0, err
 	}
 	return perf, nil
-}
-
-func loadImage(fname string) (image.Image, error) {
-	file, err := os.Open(fname)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	im, _, err := image.Decode(file)
-	if err != nil {
-		return nil, err
-	}
-	return im, nil
 }
