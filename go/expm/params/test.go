@@ -51,8 +51,13 @@ func (msg MultiScaleOptsMessage) Content(phi feat.Image, padExtend imsamp.At, ov
 	}
 }
 
-func test(x TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
-	fmt.Printf("%s\t%s\n", x.Param.Hash(), x.Param.ID())
+type TestInput struct {
+	DetectorKey
+	Images []string
+}
+
+func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
+	fmt.Printf("%s\t%s\n", x.Param.Key(), x.Param.ID())
 	opts := optsMsg.Content(x.Feat.Transform(), imsamp.Continue, x.Overlap.Spec.Eval)
 	// Load template from disk.
 	tmpl := new(detect.FeatTmpl)
@@ -60,24 +65,22 @@ func test(x TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad
 		return 0, err
 	}
 
-	ims := foldIms[x.Fold]
 	// Re-load dataset on execution host.
 	dataset, err := data.Load(datasetName, datasetSpec)
 	if err != nil {
 		return 0, err
 	}
 	// Remove images from list which should not be used for testing.
-	var subset []string
-	for _, name := range ims {
+	var ims []string
+	for _, name := range x.Images {
 		if dataset.CanTest(name) {
-			subset = append(subset, name)
+			ims = append(ims, name)
 		}
 	}
-	ims = subset
 
 	// Cache validated detections.
 	var imvals []*detect.ValSet
-	err = fileutil.Cache(&imvals, fmt.Sprintf("val-dets-%s.json", x.Hash()), func() ([]*detect.ValSet, error) {
+	err = fileutil.Cache(&imvals, fmt.Sprintf("val-dets-%s.json", x.Key()), func() ([]*detect.ValSet, error) {
 		var imvals []*detect.ValSet // Shadow variable in parent scope.
 		for i, name := range ims {
 			log.Printf("test image %d / %d: %s", i+1, len(ims), name)

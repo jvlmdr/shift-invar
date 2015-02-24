@@ -17,25 +17,40 @@ func init() {
 	dstrfn.RegisterMap("train", false, dstrfn.ConfigFunc(train))
 }
 
-type TrainInput struct {
-	Fold int
+// DetectorKey is the Cartesian product of detector parameters
+// and a training set identifier.
+type DetectorKey struct {
+	Ident string // e.g. "fold-2" or "test"
 	Param
 }
 
-func (x TrainInput) Hash() string {
-	return fmt.Sprintf("param-%s-fold-%d", x.Param.Hash(), x.Fold)
+func (x DetectorKey) Key() string {
+	return fmt.Sprintf("param-%s-%s", x.Param.Key(), x.Ident)
 }
 
-func (x TrainInput) TmplFile() string {
-	return fmt.Sprintf("tmpl-%s.gob", x.Hash())
+func (x DetectorKey) TmplFile() string {
+	return fmt.Sprintf("tmpl-%s.gob", x.Key())
 }
 
-func (x TrainInput) PerfFile() string {
-	return fmt.Sprintf("perf-%s.json", x.Hash())
+func (x DetectorKey) PerfFile() string {
+	return fmt.Sprintf("perf-%s.json", x.Key())
 }
 
-func train(u TrainInput, foldIms [][]string, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
-	fmt.Printf("%s\t%s\n", u.Param.Hash(), u.Param.ID())
+func CrossValKey(p Param, fold int) DetectorKey {
+	return DetectorKey{Ident: fmt.Sprintf("fold-%d", fold), Param: p}
+}
+
+func TestKey(p Param) DetectorKey {
+	return DetectorKey{Ident: "test", Param: p}
+}
+
+type TrainInput struct {
+	DetectorKey
+	Images []string
+}
+
+func train(u TrainInput, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
+	fmt.Printf("%s\t%s\n", u.Param.Key(), u.Param.ID())
 	// Determine dimensions of template.
 	region := detect.PadRect{
 		Size: image.Pt(u.Size.X+pad*2, u.Size.Y+pad*2),
@@ -45,8 +60,6 @@ func train(u TrainInput, foldIms [][]string, datasetName, datasetSpec string, pa
 	// Supply training algorithm with search options.
 	searchOpts := searchOptsMsg.Content(phi, imsamp.Continue, u.Overlap.Spec.Eval)
 
-	// Determine training images.
-	ims := mergeExcept(foldIms, u.Fold)
 	// Re-load dataset on execution host.
 	dataset, err := data.Load(datasetName, datasetSpec)
 	if err != nil {
@@ -54,7 +67,7 @@ func train(u TrainInput, foldIms [][]string, datasetName, datasetSpec string, pa
 	}
 	// Split images into positive and negative.
 	var posIms, negIms []string
-	for _, im := range ims {
+	for _, im := range u.Images {
 		if dataset.IsNeg(im) {
 			negIms = append(negIms, im)
 		} else {

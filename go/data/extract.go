@@ -1,7 +1,6 @@
 package data
 
 import (
-	"fmt"
 	"image"
 	"log"
 	"time"

@@ -26,9 +26,11 @@ func init() {
 
 func main() {
 	var (
-		datasetName = flag.String("dataset", "", "{inria, caltech}")
-		datasetSpec = flag.String("dataset-spec", "", "Dataset parameters (JSON)")
-		numFolds    = flag.Int("folds", 5, "Cross-validation folds")
+		trainDatasetName = flag.String("train-dataset", "", "{inria, caltech}")
+		trainDatasetSpec = flag.String("train-dataset-spec", "", "Dataset parameters (JSON)")
+		testDatasetName  = flag.String("test-dataset", "", "{inria, caltech}")
+		testDatasetSpec  = flag.String("test-dataset-spec", "", "Dataset parameters (JSON)")
+		numFolds         = flag.Int("folds", 5, "Cross-validation folds")
 		// Positive example configuration.
 		pad           = flag.Int("pad", 0, "Dilate bounding box to obtain region from which features are extracted")
 		aspectReject  = flag.Float64("reject-aspect", 0, "Reject examples not between r and 1/r times aspect ratio")
@@ -88,12 +90,12 @@ func main() {
 
 	params := paramset.Enumerate()
 	for _, p := range params {
-		fmt.Printf("%s\t%s\n", p.Hash(), p.ID())
+		fmt.Printf("%s\t%s\n", p.Key(), p.ID())
 	}
 
 	// Load data and determine cross-validation splits.
 	// Use same partitions for all methods.
-	dataset, err := data.Load(*datasetName, *datasetSpec)
+	trainData, err := data.Load(*trainDatasetName, *trainDatasetSpec)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -101,8 +103,18 @@ func main() {
 	// Cache splits due to their randomness.
 	var foldIms [][]string
 	err = fileutil.Cache(&foldIms, "folds.json", func() [][]string {
-		return split(dataset.Images(), *numFolds)
+		return split(trainData.Images(), *numFolds)
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Complement of each fold is its training data.
+	foldTrainIms := make([][]string, len(foldIms))
+	for i := range foldIms {
+		foldTrainIms[i] = mergeExcept(foldIms, i)
+	}
+	// Load testing data.
+	testData, err := data.Load(*testDatasetName, *testDatasetSpec)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -110,66 +122,46 @@ func main() {
 	// Learn template for each configuration for each fold.
 	// Save weights to file and avoid re-computing weights
 	// for configurations which have a file.
-	trainInputs := make([]TrainInput, 0, len(foldIms)*len(params))
+	xvalTrainInputs := make([]TrainInput, 0, len(foldIms)*len(params))
 	for fold := range foldIms {
 		for _, p := range params {
-			trainInputs = append(trainInputs, TrainInput{fold, p})
+			xvalTrainInputs = append(xvalTrainInputs, TrainInput{CrossValKey(p, fold), foldTrainIms[fold]})
 		}
 	}
-	var trainSubset []TrainInput
-	for _, p := range trainInputs {
-		if _, err := os.Stat(p.TmplFile()); os.IsNotExist(err) {
-			trainSubset = append(trainSubset, p)
-		} else if err != nil {
-			log.Fatalln("check if template cache exists:", err)
-		}
-	}
-	if len(trainSubset) > 0 {
-		log.Printf("number of detectors to train: %d / %d", len(trainSubset), len(trainInputs))
-		err = dstrfn.MapFunc("train", new([]string), trainSubset, foldIms, *datasetName, *datasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
-		if err != nil {
-			log.Fatalln("map(train):", err)
-		}
-	} else {
-		log.Println("all templates have cache file")
+	err = trainMap(xvalTrainInputs, *trainDatasetName, *trainDatasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	// Test each detector.
-	testInputs := make([]TrainInput, 0, len(foldIms)*len(params))
+	// Test each detector on its validation fold.
+	xvalTestInputs := make([]TestInput, 0, len(foldIms)*len(params))
 	for fold := range foldIms {
 		for _, p := range params {
-			testInputs = append(testInputs, TrainInput{fold, p})
+			xvalTestInputs = append(xvalTestInputs, TestInput{CrossValKey(p, fold), foldIms[fold]})
 		}
 	}
-	perfs := make(map[string]float64)
-	// Identify which params have not been tested yet.
-	var testSubset []TrainInput
-	for _, x := range testInputs {
-		if _, err := os.Stat(x.PerfFile()); os.IsNotExist(err) {
-			testSubset = append(testSubset, x)
-			continue
-		} else if err != nil {
-			log.Fatal(err)
-		}
-		// Attempt to load file.
-		var perf float64
-		if err := fileutil.LoadExt(x.PerfFile(), &perf); err != nil {
-			log.Fatal(err)
-		}
-		perfs[x.Hash()] = perf
+	xvalPerfs, err := testMap(xvalTestInputs, *trainDatasetName, *trainDatasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if len(testSubset) > 0 {
-		var out []float64
-		err := dstrfn.MapFunc("test", &out, testSubset, foldIms, *datasetName, *datasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
-		if err != nil {
-			log.Fatalln("map(test):", err)
-		}
-		for i, x := range testSubset {
-			perfs[x.Hash()] = out[i]
-		}
-	} else {
-		log.Println("all results have cache file")
+	trainInputs := make([]TrainInput, 0, len(params))
+	for _, p := range params {
+		trainInputs = append(trainInputs, TrainInput{TestKey(p), trainData.Images()})
+	}
+	err = trainMap(trainInputs, *trainDatasetName, *trainDatasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Test each detector on the testing set.
+	testInputs := make([]TestInput, 0, len(params))
+	for _, p := range params {
+		testInputs = append(testInputs, TestInput{TestKey(p), testData.Images()})
+	}
+	testPerfs, err := testMap(testInputs, *testDatasetName, *testDatasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// Dump all results to text file.
@@ -181,25 +173,25 @@ func main() {
 	defer out.Close()
 	buf := bufio.NewWriter(out)
 	defer buf.Flush()
-	fmt.Fprint(buf, "Hash")
+	fmt.Fprint(buf, "Key")
 	for _, name := range fields {
 		fmt.Fprintf(buf, "\t%s", name)
 	}
 	for fold := range foldIms {
 		fmt.Fprintf(buf, "\t%d", fold)
 	}
-	fmt.Fprintln(buf, "\tMissRateMean\tMissRateStdDev")
+	fmt.Fprint(buf, "\tCrossValMissRateMean\tCrossValMissRateVar")
+	fmt.Fprintln(buf, "\tMissRate")
 	for _, p := range params {
-		fmt.Fprint(buf, p.Hash())
+		fmt.Fprint(buf, p.Key())
 		for _, name := range fields {
 			fmt.Fprintf(buf, "\t%s", p.Field(name))
 		}
 		var mean, stddev float64
 		for fold := 0; fold < *numFolds; fold++ {
-			x := TrainInput{fold, p}
-			perf, ok := perfs[x.Hash()]
+			perf, ok := xvalPerfs[CrossValKey(p, fold).Key()]
 			if !ok {
-				log.Fatalln("did not find perf:", x.Hash(), p.ID())
+				log.Fatalln("did not find cross-val perf:", CrossValKey(p, fold), p.ID())
 			}
 			mean += perf
 			stddev += perf * perf
@@ -209,6 +201,67 @@ func main() {
 		stddev = math.Sqrt(stddev/float64(*numFolds) - mean*mean)
 		fmt.Fprintf(buf, "\t%g", mean)
 		fmt.Fprintf(buf, "\t%g", stddev)
+		testPerf, ok := testPerfs[TestKey(p).Key()]
+		if !ok {
+			log.Fatalln("did not find test perf:", TestKey(p), p.ID())
+		}
+		fmt.Fprintf(buf, "\t%g", testPerf)
 		fmt.Fprintln(buf)
 	}
+}
+
+func trainMap(inputs []TrainInput, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts MultiScaleOptsMessage) error {
+	var subset []TrainInput
+	for _, p := range inputs {
+		if _, err := os.Stat(p.TmplFile()); os.IsNotExist(err) {
+			subset = append(subset, p)
+		} else if err != nil {
+			log.Fatalln("check if template cache exists:", err)
+		}
+	}
+	if len(subset) > 0 {
+		log.Printf("number of detectors to train: %d / %d", len(subset), len(inputs))
+		// Discard output since result is saved to file.
+		err := dstrfn.MapFunc("train", new([]string), subset, datasetName, datasetSpec, pad, exampleOpts, flip, interp, searchOpts)
+		if err != nil {
+			log.Fatalln("map(train):", err)
+		}
+	} else {
+		log.Println("all templates have cache file")
+	}
+	return nil
+}
+
+func testMap(inputs []TestInput, datasetName, datasetSpec string, pad int, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]float64, error) {
+	perfs := make(map[string]float64)
+	// Identify which params have not been tested yet.
+	var subset []TestInput
+	for _, x := range inputs {
+		if _, err := os.Stat(x.PerfFile()); os.IsNotExist(err) {
+			subset = append(subset, x)
+			continue
+		} else if err != nil {
+			log.Fatal(err)
+		}
+		// Attempt to load file.
+		var perf float64
+		if err := fileutil.LoadExt(x.PerfFile(), &perf); err != nil {
+			log.Fatal(err)
+		}
+		perfs[x.Key()] = perf
+	}
+
+	if len(subset) > 0 {
+		var out []float64
+		err := dstrfn.MapFunc("test", &out, subset, datasetName, datasetSpec, pad, searchOpts, minMatchIOU, minIgnoreCover, fppis)
+		if err != nil {
+			log.Fatalln("map(test):", err)
+		}
+		for i, x := range subset {
+			perfs[x.Key()] = out[i]
+		}
+	} else {
+		log.Println("all results have cache file")
+	}
+	return perfs, nil
 }

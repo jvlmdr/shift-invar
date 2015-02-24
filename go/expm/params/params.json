@@ -3,35 +3,34 @@
 		{"Type": "svm", "Spec": {
 			"Bias": 1,
 			"Lambda": [1e-6, 1e-4, 1e-2, 1],
-			"Gamma": [0.1, 0.3, 0.5, 0.7, 0.9],
-			"Epochs": [2, 4]
+			"Gamma": [0.01, 0.1, 0.5, 0.9, 0.99],
+			"Epochs": [2, 4, 16, 128]
 		}},
 		{"Type": "set-svm", "Spec": {
 			"Bias": 1,
 			"Lambda": [1e-6, 1e-4, 1e-2, 1],
-			"Gamma": [0.1, 0.3, 0.5, 0.7, 0.9],
-			"Epochs": [2, 4]
+			"Gamma": [0.01, 0.1, 0.5, 0.9, 0.99],
+			"Epochs": [2, 4, 16, 128]
 		}},
 		{"Type": "hard-neg", "Spec": {
-			"Gamma": [0.1, 0.3, 0.5, 0.7, 0.9],
-			"InitNegCost": [0.1, 0.3, 0.5, 0.7, 0.9],
-			"Lambda": [1e-6, 1e-4, 1e-2, 1],
+			"Gamma": [0.01, 0.1, 0.5, 0.9, 0.99],
+			"InitNegCost": [0.1, 0.5, 0.9],
+			"Lambda": [1e-4, 1e-2, 1],
 			"Bias": 1,
-			"Epochs": [32],
-			"Rounds": [0, 1, 2, 3],
+			"Epochs": [200],
+			"Rounds": [0, 1, 2, 4],
 			"InitNeg": [10000],
 			"PerRound": [1000],
 			"Accum": [true, false]
 		}}
 	],
-	"NegFrac": [0.1, 0.2],
+	"NegFrac": [0.5],
 	"Overlap": [
 		{"Type": "inter-over-union", "Spec": {"Min": 0.3}},
 		{"Type": "inter-over-min", "Spec": {"Min": 0.65}}
 	],
 	"Size": [{"X": 32, "Y": 96}],
 	"Feat": [
-		{"Name": "hog", "Spec": {"Conf": {"Angles": 9, "CellSize": 4}}},
 		{"Name": "hog", "Spec": {"Conf": {"Angles": 9, "CellSize": 8}}}
 	]
 }

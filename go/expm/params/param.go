@@ -29,7 +29,7 @@ func (p Param) ID() string {
 	return string(repr)
 }
 
-func (p Param) Hash() string {
+func (p Param) Key() string {
 	return fmt.Sprintf("%x", sha1.Sum([]byte(p.ID())))[:8]
 }
 
