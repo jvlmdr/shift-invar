@@ -15,7 +15,7 @@ import (
 // Examples extracts windows from the image, resizes them to
 // the given size and computes their feature transform.
 // Does not check dataset.CanTrain or CanTest.
-func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, addFlip bool, interp resize.InterpolationFunction) ([][]float64, error) {
+func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet, phi feat.Image, extend imsamp.At, bias float64, shape detect.PadRect, addFlip bool, interp resize.InterpolationFunction) ([][]float64, error) {
 	var examples [][]float64
 	for _, name := range ims {
 		log.Println("load image:", name)
@@ -31,7 +31,7 @@ func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet
 		for _, rect := range rects[name] {
 			// Extract and resize window.
 			t = time.Now()
-			subim := imsamp.Rect(im, rect, imsamp.Continue)
+			subim := imsamp.Rect(im, rect, extend)
 			durSamp += time.Since(t)
 			t = time.Now()
 			subim = resize.Resize(uint(shape.Size.X), uint(shape.Size.Y), subim, interp)
@@ -85,7 +85,7 @@ func flipImageX(src image.Image) image.Image {
 // WindowSets computes the features of each image and returns
 // the set of all windows in the feature image.
 // Does not check dataset.CanTrain or CanTest.
-func WindowSets(ims []string, dataset ImageSet, phi feat.Image, bias float64, shape detect.PadRect, interp resize.InterpolationFunction) ([]*vecset.WindowSet, error) {
+func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, bias float64, shape detect.PadRect, interp resize.InterpolationFunction) ([]*vecset.WindowSet, error) {
 	featSize := phi.Size(shape.Size)
 	var sets []*vecset.WindowSet
 	for _, name := range ims {
@@ -100,7 +100,7 @@ func WindowSets(ims []string, dataset ImageSet, phi feat.Image, bias float64, sh
 		durLoad := time.Since(t)
 		t = time.Now()
 		// Take transform of entire image.
-		x, err := phi.Apply(im)
+		x, err := feat.ApplyPad(phi, im, pad)
 		if err != nil {
 			return nil, err
 		}

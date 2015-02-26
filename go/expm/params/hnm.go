@@ -122,14 +122,14 @@ func (xs byScore) Less(i, j int) bool { return xs[i].Score < xs[j].Score }
 func (xs byScore) Swap(i, j int)      { xs[i], xs[j] = xs[j], xs[i] }
 
 func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
-	posRects, err := data.PosExampleRects(posIms, dataset, region, exampleOpts)
+	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
 	}
 	// Positive examples are extracted and stored as vectors.
 	// TODO: Check dataset.CanTrain()?
 	log.Print("sample positive examples")
-	pos, err := data.Examples(posIms, posRects, dataset, phi, t.Bias, region, flip, interp)
+	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, flip, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -140,12 +140,12 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	// Choose an initial set of random negatives.
 	// TODO: Check dataset.CanTrain()?
 	log.Print("choose initial negative examples")
-	negRects, err := data.RandomWindows(t.InitNeg, negIms, dataset, region.Size)
+	negRects, err := data.RandomWindows(t.InitNeg, negIms, dataset, searchOpts.Pad.Margin, region.Size)
 	if err != nil {
 		return nil, err
 	}
 	log.Print("sample initial negative examples")
-	initNeg, err := data.Examples(negIms, negRects, dataset, phi, t.Bias, region, false, interp)
+	initNeg, err := data.Examples(negIms, negRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, false, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,11 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 			var count int
 			var totalExcl data.ExcludeCount
 			for im, objs := range objRects {
-				examples, excl, err := data.ObjectsToExamples(dataset.File(im), objs, region, exampleOpts)
+				size, err := loadImageSize(dataset.File(im))
+				if err != nil {
+					return nil, err
+				}
+				examples, excl, err := data.ObjectsToExamples(objs, region, exampleOpts, size, searchOpts.Pad.Margin)
 				if err != nil {
 					return nil, err
 				}
@@ -213,7 +217,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 				count, totalExcl.BadAspect, totalExcl.TooSmall, totalExcl.NotInside,
 			)
 			// Extract vectors.
-			nextHardNeg, err := data.Examples(negIms, exampleRects, dataset, phi, t.Bias, region, false, interp)
+			nextHardNeg, err := data.Examples(negIms, exampleRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, false, interp)
 			if err != nil {
 				return nil, err
 			}

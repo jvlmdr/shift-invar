@@ -63,12 +63,12 @@ func (set *SetSVMTrainerSet) Enumerate() []Trainer {
 }
 
 func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
-	posRects, err := data.PosExampleRects(posIms, dataset, region, exampleOpts)
+	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
 	}
 	// Positive examples are extracted and stored as vectors.
-	pos, err := data.Examples(posIms, posRects, dataset, phi, t.Bias, region, flip, interp)
+	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, flip, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, ph
 		return nil, fmt.Errorf("empty positive set")
 	}
 	// Negative examples are represented as indices into an image.
-	neg, err := data.WindowSets(negIms, dataset, phi, t.Bias, region, interp)
+	neg, err := data.WindowSets(negIms, dataset, phi, searchOpts.Pad, t.Bias, region, interp)
 	if err != nil {
 		return nil, err
 	}

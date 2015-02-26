@@ -49,12 +49,12 @@ type TrainInput struct {
 	Images []string
 }
 
-func train(u TrainInput, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
+func train(u TrainInput, datasetName, datasetSpec string, examplePad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
 	fmt.Printf("%s\t%s\n", u.Param.Key(), u.Param.ID())
 	// Determine dimensions of template.
 	region := detect.PadRect{
-		Size: image.Pt(u.Size.X+pad*2, u.Size.Y+pad*2),
-		Int:  image.Rectangle{image.ZP, u.Size}.Add(image.Pt(pad, pad)),
+		Size: image.Pt(u.Size.X+examplePad*2, u.Size.Y+examplePad*2),
+		Int:  image.Rectangle{image.ZP, u.Size}.Add(image.Pt(examplePad, examplePad)),
 	}
 	phi := u.Feat.Transform()
 	// Supply training algorithm with search options.

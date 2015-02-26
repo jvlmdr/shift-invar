@@ -3,13 +3,16 @@ package data
 import (
 	"image"
 	"math/rand"
+
+	"github.com/jvlmdr/go-cv/feat"
 )
 
 // RandomWindows returns a set of rectangles in the listed images.
 // The windows are distributed uniformly over images.
 // If an image is smaller than the window, then it is skipped and
 // the number of windows returned may be less than n.
-func RandomWindows(n int, ims []string, dataset ImageSet, size image.Point) (map[string][]image.Rectangle, error) {
+// The size is specified in pixels.
+func RandomWindows(n int, ims []string, dataset ImageSet, margin feat.Margin, size image.Point) (map[string][]image.Rectangle, error) {
 	// Count number of rectangles to take from each image.
 	// Avoid opening same image twice.
 	counts := make([]int, len(ims))
@@ -28,13 +31,14 @@ func RandomWindows(n int, ims []string, dataset ImageSet, size image.Point) (map
 		if err != nil {
 			return nil, err
 		}
-		if imsize.X < size.X || imsize.Y < size.Y {
+		lims := margin.AddTo(image.Rect(0, 0, imsize.X, imsize.Y))
+		if lims.Dx() < size.X || lims.Dy() < size.Y {
 			// Image cannot contain window.
 			continue
 		}
 		for j := 0; j < count; j++ {
-			x := rand.Intn(imsize.X - size.X + 1)
-			y := rand.Intn(imsize.Y - size.Y + 1)
+			x := rand.Intn(lims.Dx() - size.X + 1)
+			y := rand.Intn(lims.Dy() - size.Y + 1)
 			r := image.Rect(x, y, x+size.X, y+size.Y)
 			rects[im] = append(rects[im], r)
 		}

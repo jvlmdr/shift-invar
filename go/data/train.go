@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/jvlmdr/go-cv/detect"
+	"github.com/jvlmdr/go-cv/feat"
 )
 
 // TrainingSet is a subset of an ImageSet.
@@ -52,20 +53,16 @@ func (excl ExcludeCount) Plus(other ExcludeCount) ExcludeCount {
 // ObjectsToExamples takes a set of tight bounding boxes and returns
 // rectangles to use for examples.
 // Some objects may be excluded due to the criteria.
-func ObjectsToExamples(imfile string, objs []image.Rectangle, region detect.PadRect, opts ExampleOpts) ([]image.Rectangle, ExcludeCount, error) {
+// Examples which do not lie inside lims are discarded.
+func ObjectsToExamples(objs []image.Rectangle, region detect.PadRect, opts ExampleOpts, size image.Point, margin feat.Margin) ([]image.Rectangle, ExcludeCount, error) {
 	if len(objs) == 0 {
 		return nil, ExcludeCount{}, nil
 	}
-	size, err := loadImageSize(imfile)
-	if err != nil {
-		return nil, ExcludeCount{}, err
-	}
 	var examples []image.Rectangle
-	limits := image.Rectangle{image.ZP, size}
 	var excl ExcludeCount
 	for _, obj := range objs {
 		// Attempt to standardize each rectangle.
-		example, err := adjustRect(obj, limits, region, opts)
+		example, err := adjustRect(obj, size, margin, region, opts)
 		if err != nil {
 			switch err {
 			case errTooSmall:
@@ -85,7 +82,7 @@ func ObjectsToExamples(imfile string, objs []image.Rectangle, region detect.PadR
 }
 
 // PosExampleRects produces example rectangles from dataset annotations.
-func PosExampleRects(ims []string, dataset ImageSet, region detect.PadRect, opts ExampleOpts) (map[string][]image.Rectangle, error) {
+func PosExampleRects(ims []string, dataset ImageSet, margin feat.Margin, region detect.PadRect, opts ExampleOpts) (map[string][]image.Rectangle, error) {
 	var (
 		valid     int
 		totalExcl ExcludeCount
@@ -97,7 +94,11 @@ func PosExampleRects(ims []string, dataset ImageSet, region detect.PadRect, opts
 		if len(objs) == 0 {
 			continue
 		}
-		examples, excl, err := ObjectsToExamples(dataset.File(im), objs, region, opts)
+		size, err := loadImageSize(dataset.File(im))
+		if err != nil {
+			return nil, err
+		}
+		examples, excl, err := ObjectsToExamples(objs, region, opts, size, margin)
 		if err != nil {
 			return nil, err
 		}
@@ -117,46 +118,7 @@ func PosExampleRects(ims []string, dataset ImageSet, region detect.PadRect, opts
 	return rects, nil
 }
 
-//	// ExtractTrainingSet generates training data for a subset of images.
-//	func ExtractTrainingSet(dataset ImageSet, ims []string, region detect.PadRect, opts ExampleOpts) (*TrainingSet, error) {
-//		var (
-//			valid int
-//			excl  ExcludeCount
-//		)
-//		train := new(TrainingSet)
-//		train.PosRects = make(map[string][]image.Rectangle)
-//		for _, im := range ims {
-//			if dataset.IsNeg(im) {
-//				train.NegImages = append(train.NegImages, im)
-//				continue
-//			}
-//			objs := dataset.Annot(im).Instances
-//			if len(objs) == 0 {
-//				// Not every window is negative and not one window is positive.
-//				continue
-//			}
-//			examples, imExcl, err := ObjectsToExamples(dataset.File(im), objs, region, opts)
-//			if err != nil {
-//				return nil, err
-//			}
-//			excl = excl.Plus(imExcl)
-//			valid += len(examples)
-//			// Do not add empty positive images to the list.
-//			if len(examples) == 0 {
-//				// No positive windows.
-//				continue
-//			}
-//			train.PosImages = append(train.PosImages, im)
-//			train.PosRects[im] = examples
-//		}
-//		log.Printf(
-//			"valid: %d, bad aspect: %d, too small: %d, not inside: %d",
-//			valid, excl.BadAspect, excl.TooSmall, excl.NotInside,
-//		)
-//		return train, nil
-//	}
-
-func adjustRect(orig, limits image.Rectangle, region detect.PadRect, opts ExampleOpts) (image.Rectangle, error) {
+func adjustRect(orig image.Rectangle, size image.Point, margin feat.Margin, region detect.PadRect, opts ExampleOpts) (image.Rectangle, error) {
 	// Check if aspect is too far from desired.
 	aspect := float64(region.Int.Dx()) / float64(region.Int.Dy())
 	origAspect := float64(orig.Dx()) / float64(orig.Dy())
@@ -169,7 +131,16 @@ func adjustRect(orig, limits image.Rectangle, region detect.PadRect, opts Exampl
 	if scale > opts.MaxScale {
 		return image.ZR, errTooSmall
 	}
-	if !rect.In(limits) {
+	// Scale image and then add padding.
+	scaledIm := image.Pt(int(0.5+scale*float64(size.X)), int(0.5+scale*float64(size.Y)))
+	lims := margin.AddTo(image.Rect(0, 0, scaledIm.X, scaledIm.Y))
+	scaledRect := image.Rect(
+		int(0.5+scale*float64(rect.Min.X)),
+		int(0.5+scale*float64(rect.Min.Y)),
+		int(0.5+scale*float64(rect.Max.X)),
+		int(0.5+scale*float64(rect.Max.Y)),
+	)
+	if !scaledRect.In(lims) {
 		return image.ZR, errNotInside
 	}
 	return rect, nil
