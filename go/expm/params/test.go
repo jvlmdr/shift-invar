@@ -29,9 +29,8 @@ type MultiScaleOptsMessage struct {
 	Interp   resize.InterpolationFunction
 	// Replace Pad with PadMargin due to functional member.
 	PadMargin feat.Margin
+	// MinScore will be ignored and set to -inf.
 	detect.DetFilter
-	// Override DetFilter.MinScore.
-	ExpMinScore float64
 	// Replace SupprFilter with SupprMaxNum due to functional member.
 	SupprMaxNum int
 }
@@ -39,7 +38,7 @@ type MultiScaleOptsMessage struct {
 func (msg MultiScaleOptsMessage) Content(phi feat.Image, padExtend imsamp.At, overlap detect.OverlapFunc) detect.MultiScaleOpts {
 	// Override DetFilter.MinScore.
 	detFilter := msg.DetFilter
-	detFilter.MinScore = math.Log(msg.ExpMinScore)
+	detFilter.MinScore = math.Inf(-1)
 	return detect.MultiScaleOpts{
 		MaxScale:    msg.MaxScale,
 		PyrStep:     msg.PyrStep,

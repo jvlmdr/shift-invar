@@ -85,7 +85,6 @@ func main() {
 			MinScore: 0,
 		},
 		SupprMaxNum: *detsPerIm,
-		ExpMinScore: 0,
 	}
 
 	params := paramset.Enumerate()

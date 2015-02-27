@@ -17,17 +17,30 @@ import (
 )
 
 type HardNegTrainer struct {
-	Gamma       float64 // Cost fraction of positives vs negatives (0 to 1).
-	InitNegCost float64 // Cost fraction of hard negatives vs initial (0 to 1).
-	Lambda      float64
-	Bias        float64
+	Gamma    float64 // Cost fraction of positives vs negatives (0 to 1).
+	Lambda   float64
+	Bias     float64
+	// Hard negative options.
+	NegBehav   NegBehavior
+	InitNeg    int  // Initial number of random negatives.
+	PerRound   int  // Maximum number to add in each round.
+	RequirePos bool // Check that score is positive.
 	// SVM options.
 	Epochs int
-	// Hard negative options.
-	Rounds   int
-	InitNeg  int  // Initial number of random negatives.
-	PerRound int  // Number to add in each round.
-	Accum    bool // Accumulate negatives?
+}
+
+type NegBehavior struct {
+	Init   InitNegBehavior
+	Rounds int
+	// Accum only has an effect if:
+	//   IsolateInit is true and Rounds >= 2
+	//   IsolateInit is false and Rounds >= 1 (replace initial negs)
+	Accum bool
+}
+
+type InitNegBehavior struct {
+	Isolate bool    // Normalize and penalize initial negs separate to hard negs?
+	Cost    float64 // If Isolate, cost fraction of initial negs vs hard (0 to 1).
 }
 
 // Field must match HardNegTrainerSet.Fields().
@@ -35,20 +48,24 @@ func (t *HardNegTrainer) Field(name string) string {
 	switch name {
 	case "Gamma":
 		return fmt.Sprint(t.Gamma)
-	case "InitNegCost":
-		return fmt.Sprint(t.InitNegCost)
 	case "Lambda":
 		return fmt.Sprint(t.Lambda)
-	case "Epochs":
-		return fmt.Sprint(t.Epochs)
+	case "IsolateInit":
+		return fmt.Sprint(t.NegBehav.Init.Isolate)
+	case "InitNegCost":
+		return fmt.Sprint(t.NegBehav.Init.Cost)
 	case "Rounds":
-		return fmt.Sprint(t.Rounds)
+		return fmt.Sprint(t.NegBehav.Rounds)
+	case "Accum":
+		return fmt.Sprint(t.NegBehav.Accum)
 	case "InitNeg":
 		return fmt.Sprint(t.InitNeg)
 	case "PerRound":
 		return fmt.Sprint(t.PerRound)
-	case "Accum":
-		return fmt.Sprint(t.Accum)
+	case "RequirePos":
+		return fmt.Sprint(t.RequirePos)
+	case "Epochs":
+		return fmt.Sprint(t.Epochs)
 	default:
 		return ""
 	}
@@ -57,49 +74,82 @@ func (t *HardNegTrainer) Field(name string) string {
 // HardNegTrainerSet provides a mechanism to specify a set of HardNegTrainers.
 type HardNegTrainerSet struct {
 	Gamma       []float64 // Cost fraction of positives vs negatives (0 to 1).
-	InitNegCost []float64 // Cost fraction of hard negatives vs initial (0 to 1).
 	Lambda      []float64
 	Bias        float64
+	// Hard negative options.
+	IsolateInit []bool    // Normalize and penalize initial negs separate to hard negs?
+	InitNegCost []float64 // If IsolateInit, cost fraction of initial negs vs hard (0 to 1).
+	Rounds     []int
+	Accum      []bool // Accumulate negatives?
+	InitNeg    []int  // Initial number of random negatives.
+	PerRound   []int  // Maximum number to add in each round.
+	RequirePos []bool  // Check that score is positive.
 	// SVM options.
 	Epochs []int
-	// Hard negative options.
-	Rounds   []int
-	InitNeg  []int  // Initial number of random negatives.
-	PerRound []int  // Number to add in each round.
-	Accum    []bool // Accumulate negatives?
 }
 
 func (set *HardNegTrainerSet) Fields() []string {
 	return []string{
-		"Gamma", "InitNegCost", "Lambda",
-		"Rounds", "InitNeg", "PerRound", "Accum",
+		"Gamma", "Lambda",
+		"IsolateInit", "InitNegCost", "Rounds", "Accum",
+		"InitNeg", "PerRound", "RequirePos",
 		"Epochs",
 	}
 }
 
 func (set *HardNegTrainerSet) Enumerate() []Trainer {
+	var initBehavs []InitNegBehavior
+	for _, isolateInit := range set.IsolateInit {
+		if isolateInit {
+			for _, initNegCost := range set.InitNegCost {
+				behav := InitNegBehavior{Isolate: true, Cost: initNegCost}
+				initBehavs = append(initBehavs, behav)
+			}
+		} else {
+			initBehavs = append(initBehavs, InitNegBehavior{Isolate: false})
+		}
+	}
+
+	var behavs []NegBehavior
+	for _, init := range initBehavs {
+		for _, num := range set.Rounds {
+			if num < 1 {
+				// No rounds of mining.
+				// Accum will have no effect.
+				behavs = append(behavs, NegBehavior{Init: init, Rounds: num})
+				continue
+			}
+			if num == 1 && init.Isolate {
+				// One round with initial negatives segregated.
+				// Accum will have no effect.
+				behavs = append(behavs, NegBehavior{Init: init, Rounds: num})
+				continue
+			}
+			for _, accum := range set.Accum {
+				behavs = append(behavs, NegBehavior{Init: init, Rounds: num, Accum: accum})
+			}
+		}
+	}
+
 	var ts []Trainer
 	for _, gamma := range set.Gamma {
-		for _, initNegCost := range set.InitNegCost {
-			for _, lambda := range set.Lambda {
-				for _, epochs := range set.Epochs {
-					for _, rounds := range set.Rounds {
-						for _, initNeg := range set.InitNeg {
-							for _, perRound := range set.PerRound {
-								for _, accum := range set.Accum {
-									t := &HardNegTrainer{
-										Gamma:       gamma,
-										InitNegCost: initNegCost,
-										Lambda:      lambda,
-										Bias:        set.Bias,
-										Epochs:      epochs,
-										Rounds:      rounds,
-										InitNeg:     initNeg,
-										PerRound:    perRound,
-										Accum:       accum,
-									}
-									ts = append(ts, t)
+		for _, lambda := range set.Lambda {
+			for _, epochs := range set.Epochs {
+				for _, behav := range behavs {
+					for _, initNeg := range set.InitNeg {
+						for _, perRound := range set.PerRound {
+							for _, requirePos := range set.RequirePos {
+								t := &HardNegTrainer{
+									Gamma:    gamma,
+									Lambda:   lambda,
+									Bias:     set.Bias,
+									Epochs:   epochs,
+									NegBehav: behav,
+									InitNeg:  initNeg,
+									PerRound: perRound,
+									RequirePos: requirePos,
 								}
+								ts = append(ts, t)
 							}
 						}
 					}
@@ -122,6 +172,10 @@ func (xs byScore) Less(i, j int) bool { return xs[i].Score < xs[j].Score }
 func (xs byScore) Swap(i, j int)      { xs[i], xs[j] = xs[j], xs[i] }
 
 func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
+	// Over-ride MinScore in searchOpts.
+	if t.RequirePos {
+		searchOpts.DetFilter.MinScore = 0
+	}
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -155,8 +209,11 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		hardNeg [][]float64
 		tmpl    *detect.FeatTmpl
 	)
+	if t.NegBehav.Init.Isolate {
+		hardNeg = initNeg
+	}
 
-	for round := 0; round <= t.Rounds; round++ {
+	for round := 0; round <= t.NegBehav.Rounds; round++ {
 		if round > 0 {
 			// Search all negative images to obtain new hard negatives.
 			var dets []Det
@@ -223,7 +280,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 			}
 			log.Println("new hard negatives:", len(nextHardNeg))
 
-			if t.Accum {
+			if t.NegBehav.Accum {
 				hardNeg = append(hardNeg, nextHardNeg...)
 			} else {
 				hardNeg = nextHardNeg
@@ -237,23 +294,30 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 			y []float64
 			c []float64
 		)
-		// Determine absolute costs.
-		var (
-			posCost     = t.Gamma / t.Lambda / float64(len(pos))
-			initNegCost = (1 - t.Gamma) * t.InitNegCost / t.Lambda / float64(len(initNeg))
-		)
+		// Add positive examples.
+		posCost := t.Gamma / t.Lambda / float64(len(pos))
 		x = append(x, vecset.Slice(pos))
 		for _ = range pos {
 			y = append(y, 1)
 			c = append(c, posCost)
 		}
-		x = append(x, vecset.Slice(initNeg))
-		for _ = range initNeg {
-			y = append(y, -1)
-			c = append(c, initNegCost)
+		// Add initial negatives if keeping separate.
+		if t.NegBehav.Init.Isolate {
+			initNegCost := (1 - t.Gamma) * t.NegBehav.Init.Cost / t.Lambda / float64(len(initNeg))
+			x = append(x, vecset.Slice(initNeg))
+			for _ = range initNeg {
+				y = append(y, -1)
+				c = append(c, initNegCost)
+			}
 		}
+		// Add other negatives.
 		if len(hardNeg) > 0 {
-			hardNegCost := (1 - t.Gamma) * (1 - t.InitNegCost) / t.Lambda / float64(len(hardNeg))
+			var hardNegCost float64
+			if t.NegBehav.Init.Isolate {
+				hardNegCost = (1 - t.Gamma) * (1 - t.NegBehav.Init.Cost) / t.Lambda / float64(len(hardNeg))
+			} else {
+				hardNegCost = (1 - t.Gamma) / t.Lambda / float64(len(hardNeg))
+			}
 			x = append(x, vecset.Slice(hardNeg))
 			for _ = range hardNeg {
 				y = append(y, -1)
@@ -275,7 +339,12 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 
 		featsize := phi.Size(region.Size)
 		channels := phi.Channels()
-		// Exclude bias term if present.
+		// Extract bias.
+		var bias float64
+		if t.Bias != 0 {
+			bias = weights[featsize.X*featsize.Y*channels] * t.Bias
+		}
+		// Exclude bias if present.
 		weights = weights[:featsize.X*featsize.Y*channels]
 		// Pack weights into image in detection template.
 		tmpl = &detect.FeatTmpl{
@@ -285,6 +354,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 				Channels: channels,
 				Elems:    weights,
 			},
+			Bias:     bias,
 			Size:     region.Size,
 			Interior: region.Int,
 		}
