@@ -8,6 +8,7 @@ import (
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/imsamp"
+	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/shift-invar/go/vecset"
 	"github.com/nfnt/resize"
 )
@@ -15,8 +16,8 @@ import (
 // Examples extracts windows from the image, resizes them to
 // the given size and computes their feature transform.
 // Does not check dataset.CanTrain or CanTest.
-func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet, phi feat.Image, extend imsamp.At, bias float64, shape detect.PadRect, addFlip bool, interp resize.InterpolationFunction) ([][]float64, error) {
-	var examples [][]float64
+func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet, phi feat.Image, extend imsamp.At, shape detect.PadRect, addFlip bool, interp resize.InterpolationFunction) ([]*rimg64.Multi, error) {
+	var examples []*rimg64.Multi
 	for _, name := range ims {
 		log.Println("load image:", name)
 		t := time.Now()
@@ -54,11 +55,7 @@ func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet
 					return nil, err
 				}
 				durFeat += time.Since(t)
-				vec := x.Elems
-				if bias != 0 {
-					vec = append(vec, bias)
-				}
-				examples = append(examples, vec)
+				examples = append(examples, x)
 			}
 		}
 		log.Printf(
