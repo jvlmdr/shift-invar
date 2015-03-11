@@ -9,7 +9,7 @@ import (
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/imsamp"
 	"github.com/jvlmdr/go-cv/rimg64"
-	"github.com/jvlmdr/shift-invar/go/vecset"
+	"github.com/jvlmdr/shift-invar/go/imset"
 	"github.com/nfnt/resize"
 )
 
@@ -82,9 +82,9 @@ func flipImageX(src image.Image) image.Image {
 // WindowSets computes the features of each image and returns
 // the set of all windows in the feature image.
 // Does not check dataset.CanTrain or CanTest.
-func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, bias float64, shape detect.PadRect, interp resize.InterpolationFunction) ([]*vecset.WindowSet, error) {
+func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, shape detect.PadRect, interp resize.InterpolationFunction) ([]imset.Set, error) {
 	featSize := phi.Size(shape.Size)
-	var sets []*vecset.WindowSet
+	var sets []imset.Set
 	for _, name := range ims {
 		log.Println("load image:", name)
 		t := time.Now()
@@ -102,7 +102,7 @@ func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, bi
 			return nil, err
 		}
 		durFeat := time.Since(t)
-		set := new(vecset.WindowSet)
+		set := new(imset.WindowSet)
 		set.Image = x
 		set.Size = featSize
 		for u := 0; u < x.Width-featSize.X+1; u++ {
@@ -110,7 +110,6 @@ func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, bi
 				set.Windows = append(set.Windows, image.Pt(u, v))
 			}
 		}
-		set.Bias = bias
 		sets = append(sets, set)
 		log.Printf("load %.3gms, feat %.3gms", durLoad.Seconds()*1000, durFeat.Seconds()*1000)
 	}

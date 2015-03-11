@@ -12,6 +12,7 @@ import (
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-svm/svm"
 	"github.com/jvlmdr/shift-invar/go/data"
+	"github.com/jvlmdr/shift-invar/go/imset"
 	"github.com/jvlmdr/shift-invar/go/vecset"
 	"github.com/nfnt/resize"
 )
@@ -183,7 +184,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	// Positive examples are extracted and stored as vectors.
 	// TODO: Check dataset.CanTrain()?
 	log.Print("sample positive examples")
-	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, flip, interp)
+	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, region, flip, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -199,14 +200,14 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		return nil, err
 	}
 	log.Print("sample initial negative examples")
-	initNeg, err := data.Examples(negIms, negRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, false, interp)
+	initNeg, err := data.Examples(negIms, negRects, dataset, phi, searchOpts.Pad.Extend, region, false, interp)
 	if err != nil {
 		return nil, err
 	}
 	log.Println("number of negatives:", len(initNeg))
 
 	var (
-		hardNeg [][]float64
+		hardNeg []*rimg64.Multi
 		tmpl    *detect.FeatTmpl
 	)
 	if t.NegBehav.Init.Isolate {
@@ -274,7 +275,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 				count, totalExcl.BadAspect, totalExcl.TooSmall, totalExcl.NotInside,
 			)
 			// Extract vectors.
-			nextHardNeg, err := data.Examples(negIms, exampleRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, false, interp)
+			nextHardNeg, err := data.Examples(negIms, exampleRects, dataset, phi, searchOpts.Pad.Extend, region, false, interp)
 			if err != nil {
 				return nil, err
 			}
@@ -296,7 +297,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		)
 		// Add positive examples.
 		posCost := t.Gamma / t.Lambda / float64(len(pos))
-		x = append(x, vecset.Slice(pos))
+		x = append(x, &imset.VecSet{Set: imset.Slice(pos), Bias: t.Bias})
 		for _ = range pos {
 			y = append(y, 1)
 			c = append(c, posCost)
@@ -304,7 +305,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		// Add initial negatives if keeping separate.
 		if t.NegBehav.Init.Isolate {
 			initNegCost := (1 - t.Gamma) * t.NegBehav.Init.Cost / t.Lambda / float64(len(initNeg))
-			x = append(x, vecset.Slice(initNeg))
+			x = append(x, &imset.VecSet{Set: imset.Slice(initNeg), Bias: t.Bias})
 			for _ = range initNeg {
 				y = append(y, -1)
 				c = append(c, initNegCost)
@@ -318,7 +319,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 			} else {
 				hardNegCost = (1 - t.Gamma) / t.Lambda / float64(len(hardNeg))
 			}
-			x = append(x, vecset.Slice(hardNeg))
+			x = append(x, &imset.VecSet{Set: imset.Slice(hardNeg), Bias: t.Bias})
 			for _ = range hardNeg {
 				y = append(y, -1)
 				c = append(c, hardNegCost)

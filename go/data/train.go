@@ -10,15 +10,6 @@ import (
 	"github.com/jvlmdr/go-cv/feat"
 )
 
-// TrainingSet is a subset of an ImageSet.
-// It contains a list of rectangles for each positive image
-// which may have been modified from the original labels.
-type TrainingSet struct {
-	PosImages []string
-	NegImages []string
-	PosRects  map[string][]image.Rectangle
-}
-
 var (
 	errTooSmall  = errors.New("too small")
 	errBadAspect = errors.New("bad aspect ratio")

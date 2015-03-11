@@ -8,6 +8,7 @@ import (
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-svm/svm"
 	"github.com/jvlmdr/shift-invar/go/data"
+	"github.com/jvlmdr/shift-invar/go/imset"
 	"github.com/jvlmdr/shift-invar/go/vecset"
 	"github.com/nfnt/resize"
 )
@@ -68,7 +69,7 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 		return nil, err
 	}
 	// Positive examples are extracted and stored as vectors.
-	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, t.Bias, region, flip, interp)
+	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, region, flip, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +77,7 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 		return nil, fmt.Errorf("empty positive set")
 	}
 	// Negative examples are represented as indices into an image.
-	neg, err := data.WindowSets(negIms, dataset, phi, searchOpts.Pad, t.Bias, region, interp)
+	neg, err := data.WindowSets(negIms, dataset, phi, searchOpts.Pad, region, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +96,14 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 		c []float64
 	)
 	// Add positive examples as a set of vectors.
-	x = append(x, vecset.Slice(pos))
+	x = append(x, &imset.VecSet{Set: imset.Slice(pos), Bias: t.Bias})
 	for _ = range pos {
 		y = append(y, 1)
 		c = append(c, t.Gamma/t.Lambda/float64(len(pos)))
 	}
 	// Add each set of negative vectors.
 	for i := range neg {
-		x = append(x, neg[i])
+		x = append(x, &imset.VecSet{Set: neg[i], Bias: t.Bias})
 		ni := neg[i].Len()
 		// Labels and costs for every positive and negative example.
 		for j := 0; j < ni; j++ {
