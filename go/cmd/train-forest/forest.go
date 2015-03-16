@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"math"
 	"sort"
 
@@ -8,15 +9,21 @@ import (
 )
 
 type StumpForest struct {
-	Stumps []Stump
+	Stumps    []Stump
+	ImageSize image.Point
 }
 
-func (f StumpForest) Eval(x *rimg64.Multi) float64 {
+func (f StumpForest) Score(x *rimg64.Multi) (float64, error) {
 	var score float64
 	for _, stump := range f.Stumps {
-		score += stump.Eval(x)
+		score += stump.Score(x)
 	}
-	return score / float64(len(f.Stumps))
+	score /= float64(len(f.Stumps))
+	return score, nil
+}
+
+func (f StumpForest) Size() image.Point {
+	return f.ImageSize
 }
 
 type Stump struct {
@@ -26,7 +33,7 @@ type Stump struct {
 	Right   float64
 }
 
-func (f Stump) Eval(x *rimg64.Multi) float64 {
+func (f Stump) Score(x *rimg64.Multi) float64 {
 	if f.Feature.Eval(x) <= f.Thresh {
 		return f.Left
 	}
@@ -44,8 +51,8 @@ func (a byValue) Len() int           { return len(a) }
 func (a byValue) Less(i, j int) bool { return a[i].x < a[j].x }
 func (a byValue) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
-func TrainStumpForest(x []*rimg64.Multi, y []float64, distr FeatureDistribution, numTrees, numCands int) (*StumpForest, error) {
-	forest := new(StumpForest)
+func TrainStumpForest(x []*rimg64.Multi, y []float64, distr FeatureDistribution, size image.Point, numTrees, numCands int) (*StumpForest, error) {
+	forest := &StumpForest{ImageSize: size}
 	for i := 0; i < numTrees; i++ {
 		// Sample candidate features.
 		cands := make([]Feature, numCands)

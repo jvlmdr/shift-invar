@@ -58,8 +58,9 @@ func (d UniformElem) Sample() Feature {
 
 // UniformDiff is a distribution over DiffFeatures.
 type UniformDiff struct {
-	Size     image.Point
-	Channels int
+	Size        image.Point
+	Channels    int
+	SameChannel bool
 }
 
 func (d UniformDiff) Sample() Feature {
@@ -68,7 +69,12 @@ func (d UniformDiff) Sample() Feature {
 	p := rand.Intn(d.Channels)
 	i := rand.Intn(d.Size.X)
 	j := rand.Intn(d.Size.Y)
-	q := rand.Intn(d.Channels)
+	var q int
+	if d.SameChannel {
+		q = p
+	} else {
+		q = rand.Intn(d.Channels)
+	}
 	return DiffFeature{Point1: image.Pt(u, v), Channel1: p, Point2: image.Pt(i, j), Channel2: q}
 }
 

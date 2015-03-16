@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"math"
 	"math/rand"
 	"os"
-	"sort"
 
+	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/hog"
@@ -28,8 +29,10 @@ func init() {
 
 func main() {
 	var (
-		datasetName = flag.String("dataset", "", "{inria, caltech}")
-		datasetSpec = flag.String("dataset-spec", "", "Dataset parameters (JSON)")
+		trainDatasetName = flag.String("train-dataset", "", "{inria, caltech}")
+		trainDatasetSpec = flag.String("train-dataset-spec", "", "Dataset parameters (JSON)")
+		testDatasetName  = flag.String("test-dataset", "", "{inria, caltech}")
+		testDatasetSpec  = flag.String("test-dataset-spec", "", "Dataset parameters (JSON)")
 		// numFolds    = flag.Int("folds", 5, "Cross-validation folds")
 		// Positive example configuration.
 		width         = flag.Int("width", 32, "Example width before padding")
@@ -46,6 +49,14 @@ func main() {
 		numCands = flag.Int("candidates", 100, "Number of features to consider at each split")
 		// Training and testing options.
 		margin = flag.Int("margin", 0, "Margin to add to image before taking features at test time")
+		// Test configuration.
+		pyrStep      = flag.Float64("pyr-step", 1.07, "Geometric scale steps in image pyramid")
+		maxTestScale = flag.Float64("max-test-scale", 2, "Do not zoom in further than this")
+		testInterp   = flag.Int("test-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
+		detsPerIm    = flag.Int("dets-per-im", 0, "Maximum number of detections per image")
+		localMax     = flag.Bool("local-max", true, "Suppress detections which are less than a neighbor?")
+		minMatch     = flag.Float64("min-match", 0.5, "Minimum intersection-over-union to validate a true positive")
+		minIgnore    = flag.Float64("min-ignore", 0.5, "Minimum that a region can be covered to be ignored")
 	)
 	flag.Parse()
 
@@ -55,7 +66,11 @@ func main() {
 		MaxScale:     *maxTrainScale,
 	}
 
-	dataset, err := data.Load(*datasetName, *datasetSpec)
+	trainDataset, err := data.Load(*trainDatasetName, *trainDatasetSpec)
+	if err != nil {
+		log.Fatal(err)
+	}
+	testDataset, err := data.Load(*testDatasetName, *testDatasetSpec)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,13 +82,38 @@ func main() {
 		Int:  image.Rectangle{image.ZP, size}.Add(image.Pt((*pad), (*pad))),
 	}
 	phi := hog.Transform{hog.FGMRConfig(8)}
-	distr := UniformElem{Size: phi.Size(region.Size), Channels: phi.Channels()}
+	//distr := UniformElem{Size: phi.Size(region.Size), Channels: phi.Channels()}
+	distr := UniformDiff{Size: phi.Size(region.Size), Channels: phi.Channels(), SameChannel: true}
+	fppis := make([]float64, 9)
+	floats.LogSpan(fppis, 1e-2, 1)
+
+	// Test configuration.
+	searchOpts := detect.MultiScaleOpts{
+		MaxScale:  *maxTestScale,
+		PyrStep:   *pyrStep,
+		Interp:    resize.InterpolationFunction(*testInterp),
+		Transform: phi,
+		Pad: feat.Pad{
+			Margin: feat.UniformMargin(*margin),
+			Extend: imsamp.Continue,
+		},
+		DetFilter: detect.DetFilter{
+			LocalMax: *localMax,
+			MinScore: math.Inf(-1),
+		},
+		SupprFilter: detect.SupprFilter{
+			MaxNum: *detsPerIm,
+			Overlap: func(a, b image.Rectangle) bool {
+				return interOverMin(a, b) >= 0.65
+			},
+		},
+	}
 
 	// Split images into positive and negative.
-	ims := dataset.Images()
+	ims := trainDataset.Images()
 	var posIms, negIms []string
 	for _, im := range ims {
-		if dataset.IsNeg(im) {
+		if trainDataset.IsNeg(im) {
 			negIms = append(negIms, im)
 		} else {
 			posIms = append(posIms, im)
@@ -84,13 +124,13 @@ func main() {
 	//	negIms = selectSubset(negIms, randSubset(len(negIms), numNegIms))
 	//	log.Println("number of negative images:", len(negIms))
 
-	posRects, err := data.PosExampleRects(posIms, dataset, feat.UniformMargin(*margin), region, exampleOpts)
+	posRects, err := data.PosExampleRects(posIms, trainDataset, feat.UniformMargin(*margin), region, exampleOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Positive examples are extracted and stored as vectors.
-	pos, err := data.Examples(posIms, posRects, dataset, phi, imsamp.Continue, region, *flip, resize.InterpolationFunction(*trainInterp))
+	pos, err := data.Examples(posIms, posRects, trainDataset, phi, imsamp.Continue, region, *flip, resize.InterpolationFunction(*trainInterp))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -99,14 +139,14 @@ func main() {
 	}
 
 	// Choose an initial set of random negatives.
-	// TODO: Check dataset.CanTrain()?
+	// TODO: Check trainDataset.CanTrain()?
 	log.Print("choose initial negative examples")
-	negRects, err := data.RandomWindows(*numNeg, negIms, dataset, feat.UniformMargin(*margin), region.Size)
+	negRects, err := data.RandomWindows(*numNeg, negIms, trainDataset, feat.UniformMargin(*margin), region.Size)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Print("sample initial negative examples")
-	neg, err := data.Examples(negIms, negRects, dataset, phi, imsamp.Continue, region, false, resize.InterpolationFunction(*trainInterp))
+	neg, err := data.Examples(negIms, negRects, trainDataset, phi, imsamp.Continue, region, false, resize.InterpolationFunction(*trainInterp))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,57 +165,75 @@ func main() {
 		y = append(y, -1)
 	}
 
-	forest, err := TrainStumpForest(x, y, distr, *numTrees, *numCands)
+	forest, err := TrainStumpForest(x, y, distr, phi.Size(region.Size), *numTrees, *numCands)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Measure training error.
-	vals := make([]detect.ValScore, len(x))
-	for i := range x {
-		vals = append(vals, detect.ValScore{Score: forest.Eval(x[i]), True: y[i] > 0})
+	//	// Measure training error.
+	//	vals := make([]ml.ValScore, len(x))
+	//	for i := range x {
+	//		vals = append(vals, ml.ValScore{Score: forest.Eval(x[i]), Pos: y[i] > 0})
+	//	}
+	//	ml.Sort(vals)
+	//	fmt.Printf("avg prec: %.4g\n", ml.Enum(vals).AvgPrec())
+	//	shuffle(ScoreList(vals))
+	//	fmt.Printf("chance: %.4g\n", ml.Enum(vals).AvgPrec())
+
+	trainIms := trainDataset.Images()
+	// Remove images from list which should not be used for testing.
+	trainIms = canTestSubset(trainDataset, trainIms)
+	trainVals, err := test(trainDataset, trainIms, forest, region, searchOpts, *minMatch, *minIgnore)
+	if err != nil {
+		log.Fatal(err)
 	}
-	sort.Sort(byScoreDesc(vals))
-	fmt.Printf("avg prec: %.4g\n", enumerate(vals).AvgPrec())
-	shuffle(byScoreDesc(vals))
-	fmt.Printf("chance: %.4g\n", enumerate(vals).AvgPrec())
+
+	// Get average miss rate.
+	trainRates := detect.MissRateAtFPPIs(detect.MergeValSets(trainVals...), fppis)
+	for i := range trainRates {
+		log.Printf("fppi %g, miss rate %g", fppis[i], trainRates[i])
+	}
+	trainPerf := floats.Sum(trainRates) / float64(len(fppis))
+	fmt.Println("train:", trainPerf)
+
+	testIms := testDataset.Images()
+	// Remove images from list which should not be used for testing.
+	testIms = canTestSubset(testDataset, testIms)
+	testVals, err := test(testDataset, testIms, forest, region, searchOpts, *minMatch, *minIgnore)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Get average miss rate.
+	testRates := detect.MissRateAtFPPIs(detect.MergeValSets(testVals...), fppis)
+	for i := range testRates {
+		log.Printf("fppi %g, miss rate %g", fppis[i], testRates[i])
+	}
+	testPerf := floats.Sum(testRates) / float64(len(fppis))
+	fmt.Println("test:", testPerf)
 }
 
-func enumerate(vals []detect.ValScore) ml.PerfPath {
-	var pos, neg int
-	for _, val := range vals {
-		if val.True {
-			pos++
-		} else {
-			neg++
-		}
-	}
-	// Start with high threshold, everything negative,
-	// then gradually lower it.
-	perfs := make([]ml.Perf, 0, len(vals)+1)
-	perf := ml.Perf{FN: pos, TN: neg}
-	perfs = append(perfs, perf)
-	for i := range vals {
-		if vals[i].True {
-			// Positive example classified as positive instead of negative.
-			perf.TP, perf.FN = perf.TP+1, perf.FN-1
-		} else {
-			// Negative example classified as positive instead of negative.
-			perf.FP, perf.TN = perf.FP+1, perf.TN-1
-		}
-		perfs = append(perfs, perf)
-	}
-	return ml.PerfPath(perfs)
+type ScoreList []ml.ValScore
+
+func (s ScoreList) Len() int      { return len(s) }
+func (s ScoreList) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+type List interface {
+	Len() int
+	Swap(i, j int)
 }
 
-type byScoreDesc []detect.ValScore
-
-func (s byScoreDesc) Len() int           { return len(s) }
-func (s byScoreDesc) Less(i, j int) bool { return s[i].Score > s[j].Score }
-func (s byScoreDesc) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-
-func shuffle(xs sort.Interface) {
+func shuffle(xs List) {
 	for i, j := range rand.Perm(xs.Len()) {
 		xs.Swap(i, j)
 	}
+}
+
+func interOverMin(a, b image.Rectangle) float64 {
+	inter := area(a.Intersect(b))
+	min := min(area(a), area(b))
+	if min == 0 {
+		panic("at least one empty rectangle")
+	}
+	return float64(inter) / float64(min)
 }

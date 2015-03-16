@@ -10,6 +10,7 @@ import (
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/go-cv/slide"
 	"github.com/jvlmdr/go-svm/svm"
 	"github.com/jvlmdr/shift-invar/go/data"
 	"github.com/jvlmdr/shift-invar/go/imset"
@@ -18,9 +19,9 @@ import (
 )
 
 type HardNegTrainer struct {
-	Gamma    float64 // Cost fraction of positives vs negatives (0 to 1).
-	Lambda   float64
-	Bias     float64
+	Gamma  float64 // Cost fraction of positives vs negatives (0 to 1).
+	Lambda float64
+	Bias   float64
 	// Hard negative options.
 	NegBehav   NegBehavior
 	InitNeg    int  // Initial number of random negatives.
@@ -74,17 +75,17 @@ func (t *HardNegTrainer) Field(name string) string {
 
 // HardNegTrainerSet provides a mechanism to specify a set of HardNegTrainers.
 type HardNegTrainerSet struct {
-	Gamma       []float64 // Cost fraction of positives vs negatives (0 to 1).
-	Lambda      []float64
-	Bias        float64
+	Gamma  []float64 // Cost fraction of positives vs negatives (0 to 1).
+	Lambda []float64
+	Bias   float64
 	// Hard negative options.
 	IsolateInit []bool    // Normalize and penalize initial negs separate to hard negs?
 	InitNegCost []float64 // If IsolateInit, cost fraction of initial negs vs hard (0 to 1).
-	Rounds     []int
-	Accum      []bool // Accumulate negatives?
-	InitNeg    []int  // Initial number of random negatives.
-	PerRound   []int  // Maximum number to add in each round.
-	RequirePos []bool  // Check that score is positive.
+	Rounds      []int
+	Accum       []bool // Accumulate negatives?
+	InitNeg     []int  // Initial number of random negatives.
+	PerRound    []int  // Maximum number to add in each round.
+	RequirePos  []bool // Check that score is positive.
 	// SVM options.
 	Epochs []int
 }
@@ -141,13 +142,13 @@ func (set *HardNegTrainerSet) Enumerate() []Trainer {
 						for _, perRound := range set.PerRound {
 							for _, requirePos := range set.RequirePos {
 								t := &HardNegTrainer{
-									Gamma:    gamma,
-									Lambda:   lambda,
-									Bias:     set.Bias,
-									Epochs:   epochs,
-									NegBehav: behav,
-									InitNeg:  initNeg,
-									PerRound: perRound,
+									Gamma:      gamma,
+									Lambda:     lambda,
+									Bias:       set.Bias,
+									Epochs:     epochs,
+									NegBehav:   behav,
+									InitNeg:    initNeg,
+									PerRound:   perRound,
 									RequirePos: requirePos,
 								}
 								ts = append(ts, t)
@@ -229,7 +230,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 					continue
 				}
 				durLoad := time.Since(s)
-				imDets, durSearch, err := detect.MultiScale(im, tmpl, searchOpts)
+				imDets, durSearch, err := detect.MultiScale(im, tmpl.Scorer, tmpl.PixelShape, searchOpts)
 				if err != nil {
 					return nil, err
 				}
@@ -349,15 +350,16 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		weights = weights[:featsize.X*featsize.Y*channels]
 		// Pack weights into image in detection template.
 		tmpl = &detect.FeatTmpl{
-			Image: &rimg64.Multi{
-				Width:    featsize.X,
-				Height:   featsize.Y,
-				Channels: channels,
-				Elems:    weights,
+			Scorer: &slide.AffineScorer{
+				Tmpl: &rimg64.Multi{
+					Width:    featsize.X,
+					Height:   featsize.Y,
+					Channels: channels,
+					Elems:    weights,
+				},
+				Bias: bias,
 			},
-			Bias:     bias,
-			Size:     region.Size,
-			Interior: region.Int,
+			PixelShape: region,
 		}
 	}
 	return tmpl, nil

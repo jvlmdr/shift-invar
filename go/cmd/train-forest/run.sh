@@ -1,0 +1,11 @@
+./train-forest \
+	-train-dataset inria \
+	-train-dataset-spec '{"Dir": "'$DATASETS'/INRIAPerson/", "Set": "Train", "ExclNegTest": true}' \
+	-test-dataset inria \
+	-test-dataset-spec '{"Dir": "'$DATASETS'/INRIAPerson/", "Set": "Test", "ExclNegTest": true}' \
+	-num-neg=20000 -trees=100 -candidates=100 \
+	-width=32 -height=96 -pad=16 -reject-aspect=1.5 -resize-for=height \
+	-max-train-scale=2 -flip -train-interp=1 \
+	-margin=16 \
+	-pyr-step=1.07 -max-test-scale=1 -test-interp=1 -dets-per-im=32 -local-max \
+	-min-match=0.5 -min-ignore=0.5

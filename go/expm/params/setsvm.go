@@ -6,6 +6,7 @@ import (
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/rimg64"
+	"github.com/jvlmdr/go-cv/slide"
 	"github.com/jvlmdr/go-svm/setsvm"
 	"github.com/jvlmdr/shift-invar/go/data"
 	"github.com/jvlmdr/shift-invar/go/imset"
@@ -120,14 +121,15 @@ func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, ph
 	weights = weights[:featsize.X*featsize.Y*channels]
 	// Pack weights into image in detection template.
 	tmpl := &detect.FeatTmpl{
-		Image: &rimg64.Multi{
-			Width:    featsize.X,
-			Height:   featsize.Y,
-			Channels: channels,
-			Elems:    weights,
+		Scorer: &slide.AffineScorer{
+			Tmpl: &rimg64.Multi{
+				Width:    featsize.X,
+				Height:   featsize.Y,
+				Channels: channels,
+				Elems:    weights,
+			},
 		},
-		Size:     region.Size,
-		Interior: region.Int,
+		PixelShape: region,
 	}
 	return tmpl, nil
 }

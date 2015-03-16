@@ -92,7 +92,7 @@ func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiSc
 				continue
 			}
 			durLoad := time.Since(t)
-			dets, durSearch, err := detect.MultiScale(im, tmpl, opts)
+			dets, durSearch, err := detect.MultiScale(im, tmpl.Scorer, tmpl.PixelShape, opts)
 			if err != nil {
 				return nil, err
 			}
