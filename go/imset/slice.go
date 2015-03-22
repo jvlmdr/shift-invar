@@ -26,7 +26,7 @@ func (set Slice) ImageSize() image.Point {
 func (set Slice) ImageChannels() int {
 	channels := set[0].Channels
 	for _, x := range set {
-		if x.Channels == channels {
+		if x.Channels != channels {
 			panic(fmt.Sprintf("different channels: found %v and %v", channels, x.Channels))
 		}
 	}
