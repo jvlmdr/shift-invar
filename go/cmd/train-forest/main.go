@@ -46,6 +46,7 @@ func main() {
 		numNeg        = flag.Int("num-neg", 1000, "Number of negative examples")
 		// Forest options.
 		numTrees = flag.Int("trees", 100, "Number of trees in forest")
+		depth    = flag.Int("depth", 4, "Depth of trees")
 		numCands = flag.Int("candidates", 100, "Number of features to consider at each split")
 		// Training and testing options.
 		margin = flag.Int("margin", 0, "Margin to add to image before taking features at test time")
@@ -165,7 +166,7 @@ func main() {
 		y = append(y, -1)
 	}
 
-	forest, err := TrainStumpForest(x, y, distr, phi.Size(region.Size), *numTrees, *numCands)
+	forest, err := TrainForest(x, y, distr, phi.Size(region.Size), *numTrees, *depth, *numCands)
 	if err != nil {
 		log.Fatal(err)
 	}
