@@ -16,7 +16,7 @@ type Param struct {
 	NegFrac float64
 	Overlap OverlapMessage
 	Size    image.Point
-	Feat    featset.ImageMarshaler
+	Feat    Feature
 }
 
 func (p Param) ID() string {
@@ -57,4 +57,9 @@ func (p Param) Field(name string) string {
 	default:
 		return ""
 	}
+}
+
+type Feature struct {
+	Transform featset.ImageMarshaler
+	CovarFile string
 }

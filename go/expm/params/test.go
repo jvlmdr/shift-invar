@@ -57,7 +57,7 @@ type TestInput struct {
 
 func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
 	fmt.Printf("%s\t%s\n", x.Param.Key(), x.Param.ID())
-	opts := optsMsg.Content(x.Feat.Transform(), imsamp.Continue, x.Overlap.Spec.Eval)
+	opts := optsMsg.Content(x.Feat.Transform.Transform(), imsamp.Continue, x.Overlap.Spec.Eval)
 	// Load template from disk.
 	tmpl := new(detect.FeatTmpl)
 	if err := fileutil.LoadExt(x.TmplFile(), tmpl); err != nil {
@@ -88,8 +88,7 @@ func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiSc
 			t := time.Now()
 			im, err := loadImage(file)
 			if err != nil {
-				log.Printf("load test image: %s, error: %v", file, err)
-				continue
+				return nil, err
 			}
 			durLoad := time.Since(t)
 			dets, durSearch, err := detect.MultiScale(im, tmpl.Scorer, tmpl.PixelShape, opts)

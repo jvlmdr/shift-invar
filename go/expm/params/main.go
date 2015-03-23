@@ -31,6 +31,7 @@ func main() {
 		testDatasetName  = flag.String("test-dataset", "", "{inria, caltech}")
 		testDatasetSpec  = flag.String("test-dataset-spec", "", "Dataset parameters (JSON)")
 		numFolds         = flag.Int("folds", 5, "Cross-validation folds")
+		covarDir         = flag.String("covar-dir", "", "Directory to which CovarFile is relative")
 		// Positive example configuration.
 		pad           = flag.Int("pad", 0, "Dilate bounding box to obtain region from which features are extracted")
 		aspectReject  = flag.Float64("reject-aspect", 0, "Reject examples not between r and 1/r times aspect ratio")
@@ -127,7 +128,7 @@ func main() {
 			xvalTrainInputs = append(xvalTrainInputs, TrainInput{CrossValKey(p, fold), foldTrainIms[fold]})
 		}
 	}
-	err = trainMap(xvalTrainInputs, *trainDatasetName, *trainDatasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
+	err = trainMap(xvalTrainInputs, *trainDatasetName, *trainDatasetSpec, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -148,7 +149,7 @@ func main() {
 	for _, p := range params {
 		trainInputs = append(trainInputs, TrainInput{TestKey(p), trainData.Images()})
 	}
-	err = trainMap(trainInputs, *trainDatasetName, *trainDatasetSpec, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
+	err = trainMap(trainInputs, *trainDatasetName, *trainDatasetSpec, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -209,7 +210,7 @@ func main() {
 	}
 }
 
-func trainMap(inputs []TrainInput, datasetName, datasetSpec string, pad int, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts MultiScaleOptsMessage) error {
+func trainMap(inputs []TrainInput, datasetName, datasetSpec, covarDir string, pad int, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts MultiScaleOptsMessage) error {
 	var subset []TrainInput
 	for _, p := range inputs {
 		if _, err := os.Stat(p.TmplFile()); os.IsNotExist(err) {
@@ -221,7 +222,7 @@ func trainMap(inputs []TrainInput, datasetName, datasetSpec string, pad int, exa
 	if len(subset) > 0 {
 		log.Printf("number of detectors to train: %d / %d", len(subset), len(inputs))
 		// Discard output since result is saved to file.
-		err := dstrfn.MapFunc("train", new([]string), subset, datasetName, datasetSpec, pad, exampleOpts, flip, interp, searchOpts)
+		err := dstrfn.MapFunc("train", new([]string), subset, datasetName, datasetSpec, covarDir, pad, exampleOpts, flip, interp, searchOpts)
 		if err != nil {
 			log.Fatalln("map(train):", err)
 		}

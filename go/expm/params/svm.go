@@ -64,7 +64,7 @@ func (set *SVMTrainerSet) Enumerate() []Trainer {
 	return ts
 }
 
-func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
+func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, covarFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err

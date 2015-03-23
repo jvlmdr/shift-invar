@@ -24,8 +24,7 @@ func Examples(ims []string, rects map[string][]image.Rectangle, dataset ImageSet
 		file := dataset.File(name)
 		im, err := loadImage(file)
 		if err != nil {
-			log.Printf("load image: %s, error: %v", file, err)
-			continue
+			return nil, err
 		}
 		durLoad := time.Since(t)
 		var durSamp, durResize, durFlip, durFeat time.Duration
@@ -91,8 +90,7 @@ func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, sh
 		file := dataset.File(name)
 		im, err := loadImage(file)
 		if err != nil {
-			log.Printf("load image: %s, error: %v", file, err)
-			continue
+			return nil, err
 		}
 		durLoad := time.Since(t)
 		t = time.Now()

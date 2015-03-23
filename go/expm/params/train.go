@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"path"
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/imsamp"
@@ -49,14 +50,14 @@ type TrainInput struct {
 	Images []string
 }
 
-func train(u TrainInput, datasetName, datasetSpec string, examplePad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
+func train(u TrainInput, datasetName, datasetSpec, covarDir string, examplePad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
 	fmt.Printf("%s\t%s\n", u.Param.Key(), u.Param.ID())
 	// Determine dimensions of template.
 	region := detect.PadRect{
 		Size: image.Pt(u.Size.X+examplePad*2, u.Size.Y+examplePad*2),
 		Int:  image.Rectangle{image.ZP, u.Size}.Add(image.Pt(examplePad, examplePad)),
 	}
-	phi := u.Feat.Transform()
+	phi := u.Feat.Transform.Transform()
 	// Supply training algorithm with search options.
 	searchOpts := searchOptsMsg.Content(phi, imsamp.Continue, u.Overlap.Spec.Eval)
 
@@ -79,7 +80,8 @@ func train(u TrainInput, datasetName, datasetSpec string, examplePad int, exampl
 	negIms = selectSubset(negIms, randSubset(len(negIms), numNegIms))
 	log.Println("number of negative images:", len(negIms))
 
-	tmpl, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, region, exampleOpts, addFlip, interp, searchOpts)
+	covarFile := path.Join(covarDir, u.Feat.CovarFile)
+	tmpl, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, covarFile, region, exampleOpts, addFlip, interp, searchOpts)
 	if err != nil {
 		return "", err
 	}

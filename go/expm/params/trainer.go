@@ -12,7 +12,7 @@ import (
 // Trainer takes a training set which was extracted
 // using some configuration for training examples.
 type Trainer interface {
-	Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error)
+	Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, covarFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error)
 	Field(string) string
 }
 
@@ -37,6 +37,10 @@ func init() {
 	DefaultTrainers.Register("hard-neg",
 		func() (Trainer, error) { return new(HardNegTrainer), nil },
 		func() (TrainerSet, error) { return new(HardNegTrainerSet), nil },
+	)
+	DefaultTrainers.Register("toeplitz",
+		func() (Trainer, error) { return new(ToeplitzTrainer), nil },
+		func() (TrainerSet, error) { return new(ToeplitzTrainerSet), nil },
 	)
 }
 

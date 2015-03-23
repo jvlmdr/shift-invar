@@ -1,17 +1,13 @@
 package main
 
-import (
-	"image"
-
-	"github.com/jvlmdr/go-cv/featset"
-)
+import "image"
 
 type ParamSet struct {
 	TrainerSets []TrainerSetMessage
 	NegFrac     []float64
 	Overlap     []OverlapMessage
 	Size        []image.Point
-	Feat        []featset.ImageMarshaler
+	Feat        []Feature
 }
 
 func (set *ParamSet) Fields() []string {
