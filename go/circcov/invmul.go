@@ -1,7 +1,6 @@
 package circcov
 
 import (
-	"log"
 	"math/cmplx"
 
 	"github.com/jvlmdr/go-cv/rimg64"
@@ -12,14 +11,14 @@ import (
 )
 
 // InvMul calls InvMulMode using Convex to obtain the circulant matrix.
-func InvMul(g *toepcov.Covar, f *rimg64.Multi) *rimg64.Multi {
+func InvMul(g *toepcov.Covar, f *rimg64.Multi) (*rimg64.Multi, error) {
 	return InvMulMode(g, f, Convex)
 }
 
 // InvMulMode solves for x in S x = f where S is the circulant covariance matrix.
 // The manner in which the circulant matrix is constructed is determined
 // by the coefficients function.
-func InvMulMode(g *toepcov.Covar, f *rimg64.Multi, coeffs CoeffsFunc) *rimg64.Multi {
+func InvMulMode(g *toepcov.Covar, f *rimg64.Multi, coeffs CoeffsFunc) (*rimg64.Multi, error) {
 	c := g.Channels
 	n := float64(f.Width * f.Height)
 
@@ -55,7 +54,7 @@ func InvMulMode(g *toepcov.Covar, f *rimg64.Multi, coeffs CoeffsFunc) *rimg64.Mu
 			}
 			z, err := clap.SolvePosDef(A, y)
 			if err != nil {
-				log.Fatalln("could not solve channels x channels problem:", err)
+				return nil, err
 			}
 			for p := 0; p < c; p++ {
 				xHat[p].Set(u, v, complex(1/n, 0)*z[p])
@@ -67,5 +66,5 @@ func InvMulMode(g *toepcov.Covar, f *rimg64.Multi, coeffs CoeffsFunc) *rimg64.Mu
 	for p := 0; p < c; p++ {
 		idftToChannel(x, p, xHat[p])
 	}
-	return x
+	return x, nil
 }

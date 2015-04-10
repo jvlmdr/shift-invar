@@ -7,6 +7,13 @@ import (
 	"sort"
 )
 
+func min64(a, b int64) int64 {
+	if b < a {
+		return b
+	}
+	return a
+}
+
 func min(a, b int) int {
 	if b < a {
 		return b
@@ -19,6 +26,10 @@ func max(a, b int) int {
 		return b
 	}
 	return a
+}
+
+func mod(x, n int) int {
+	return ((x % n) + n) % n
 }
 
 func area(r image.Rectangle) int {

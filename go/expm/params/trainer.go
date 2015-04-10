@@ -42,6 +42,10 @@ func init() {
 		func() (Trainer, error) { return new(ToeplitzTrainer), nil },
 		func() (TrainerSet, error) { return new(ToeplitzTrainerSet), nil },
 	)
+	DefaultTrainers.Register("toep-inv",
+		func() (Trainer, error) { return new(ToepInvTrainer), nil },
+		func() (TrainerSet, error) { return new(ToepInvTrainerSet), nil },
+	)
 }
 
 type trainerType struct {

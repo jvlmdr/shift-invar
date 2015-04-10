@@ -8,6 +8,7 @@ import (
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-cv/slide"
+	"github.com/jvlmdr/shift-invar/go/circcov"
 	"github.com/jvlmdr/shift-invar/go/data"
 	"github.com/jvlmdr/shift-invar/go/toepcov"
 	"github.com/nfnt/resize"
@@ -15,12 +16,15 @@ import (
 
 type ToeplitzTrainer struct {
 	Lambda float64
+	Circ   bool
 }
 
 func (t *ToeplitzTrainer) Field(name string) string {
 	switch name {
 	case "Lambda":
 		return fmt.Sprint(t.Lambda)
+	case "Circ":
+		return fmt.Sprint(t.Circ)
 	default:
 		return ""
 	}
@@ -29,17 +33,20 @@ func (t *ToeplitzTrainer) Field(name string) string {
 // ToeplitzTrainerSet provides a mechanism to specify a set of ToeplitzTrainers.
 type ToeplitzTrainerSet struct {
 	Lambda []float64
+	Circ   []bool
 }
 
 func (set *ToeplitzTrainerSet) Fields() []string {
-	return []string{"Lambda"}
+	return []string{"Lambda", "Circ"}
 }
 
 func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
 	var ts []Trainer
 	for _, lambda := range set.Lambda {
-		t := &ToeplitzTrainer{Lambda: lambda}
-		ts = append(ts, t)
+		for _, circ := range set.Circ {
+			t := &ToeplitzTrainer{Lambda: lambda, Circ: circ}
+			ts = append(ts, t)
+		}
 	}
 	return ts
 }
@@ -77,9 +84,17 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 	distr.Covar.AddLambdaI(t.Lambda)
 	// Subtract negative mean from positive example.
 	delta := toepcov.SubMean(meanPos, distr.Mean)
-	weights, err := toepcov.InvMulDirect(distr.Covar, delta)
-	if err != nil {
-		return nil, err
+	var weights *rimg64.Multi
+	if t.Circ {
+		weights, err = circcov.InvMul(distr.Covar, delta)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		weights, err = toepcov.InvMulDirect(distr.Covar, delta)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Pack weights into image in detection template.
