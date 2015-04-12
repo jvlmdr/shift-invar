@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+
+	"github.com/jvlmdr/go-cv/dataset/caltechped"
 )
 
 // ImageSet is a set of annotated images which can be
@@ -43,15 +45,21 @@ type Annot struct {
 }
 
 func Load(name, specJSON string) (ImageSet, error) {
-	if name == "inria" {
+	switch name {
+	case "inria":
 		var spec INRIASpec
 		if err := json.Unmarshal([]byte(specJSON), &spec); err != nil {
 			return nil, err
 		}
 		return loadINRIA(spec)
+	case "caltech-preset":
+		var preset CaltechPreset
+		if err := json.Unmarshal([]byte(specJSON), &preset); err != nil {
+			return nil, err
+		}
+		spec := preset.Spec()
+		return loadCaltech(spec, caltechped.Reasonable)
+	default:
+		panic(fmt.Sprintf("unknown dataset: %s", name))
 	}
-	if name == "caltech" {
-		panic("caltech unimplemented")
-	}
-	panic(fmt.Sprintf("unknown dataset: %s", name))
 }

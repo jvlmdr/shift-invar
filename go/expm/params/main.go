@@ -99,11 +99,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	trainIms := trainData.Images()
+	if len(trainIms) == 0 {
+		log.Fatal("training dataset is empty")
+	}
 	// Split images into folds.
 	// Cache splits due to their randomness.
 	var foldIms [][]string
 	err = fileutil.Cache(&foldIms, "folds.json", func() [][]string {
-		return split(trainData.Images(), *numFolds)
+		return split(trainIms, *numFolds)
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -117,6 +121,10 @@ func main() {
 	testData, err := data.Load(*testDatasetName, *testDatasetSpec)
 	if err != nil {
 		log.Fatal(err)
+	}
+	testIms := testData.Images()
+	if len(testIms) == 0 {
+		log.Fatal("testing dataset is empty")
 	}
 
 	// Learn template for each configuration for each fold.
@@ -147,7 +155,7 @@ func main() {
 
 	trainInputs := make([]TrainInput, 0, len(params))
 	for _, p := range params {
-		trainInputs = append(trainInputs, TrainInput{TestKey(p), trainData.Images()})
+		trainInputs = append(trainInputs, TrainInput{TestKey(p), trainIms})
 	}
 	err = trainMap(trainInputs, *trainDatasetName, *trainDatasetSpec, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
 	if err != nil {
@@ -157,7 +165,7 @@ func main() {
 	// Test each detector on the testing set.
 	testInputs := make([]TestInput, 0, len(params))
 	for _, p := range params {
-		testInputs = append(testInputs, TestInput{TestKey(p), testData.Images()})
+		testInputs = append(testInputs, TestInput{TestKey(p), testIms})
 	}
 	testPerfs, err := testMap(testInputs, *testDatasetName, *testDatasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
 	if err != nil {
@@ -219,15 +227,15 @@ func trainMap(inputs []TrainInput, datasetName, datasetSpec, covarDir string, pa
 			log.Fatalln("check if template cache exists:", err)
 		}
 	}
-	if len(subset) > 0 {
-		log.Printf("number of detectors to train: %d / %d", len(subset), len(inputs))
-		// Discard output since result is saved to file.
-		err := dstrfn.MapFunc("train", new([]string), subset, datasetName, datasetSpec, covarDir, pad, exampleOpts, flip, interp, searchOpts)
-		if err != nil {
-			log.Fatalln("map(train):", err)
-		}
-	} else {
+	if len(subset) == 0 {
 		log.Println("all templates have cache file")
+		return nil
+	}
+	log.Printf("number of detectors to train: %d / %d", len(subset), len(inputs))
+	// Discard output since result is saved to file.
+	err := dstrfn.MapFunc("train", new([]string), subset, datasetName, datasetSpec, covarDir, pad, exampleOpts, flip, interp, searchOpts)
+	if err != nil {
+		log.Fatalln("map(train):", err)
 	}
 	return nil
 }
@@ -237,31 +245,32 @@ func testMap(inputs []TestInput, datasetName, datasetSpec string, pad int, searc
 	// Identify which params have not been tested yet.
 	var subset []TestInput
 	for _, x := range inputs {
-		if _, err := os.Stat(x.PerfFile()); os.IsNotExist(err) {
+		fname := x.PerfFile()
+		if _, err := os.Stat(fname); os.IsNotExist(err) {
 			subset = append(subset, x)
 			continue
 		} else if err != nil {
-			log.Fatal(err)
+			log.Fatalf(`stat cache file "%s": %v`, fname, err)
 		}
 		// Attempt to load file.
 		var perf float64
-		if err := fileutil.LoadExt(x.PerfFile(), &perf); err != nil {
-			log.Fatal(err)
+		if err := fileutil.LoadExt(fname, &perf); err != nil {
+			log.Fatalf(`load cache file "%s": %v`, fname, err)
 		}
 		perfs[x.Key()] = perf
 	}
 
-	if len(subset) > 0 {
-		var out []float64
-		err := dstrfn.MapFunc("test", &out, subset, datasetName, datasetSpec, pad, searchOpts, minMatchIOU, minIgnoreCover, fppis)
-		if err != nil {
-			log.Fatalln("map(test):", err)
-		}
-		for i, x := range subset {
-			perfs[x.Key()] = out[i]
-		}
-	} else {
+	if len(subset) == 0 {
 		log.Println("all results have cache file")
+		return perfs, nil
+	}
+	var out []float64
+	err := dstrfn.MapFunc("test", &out, subset, datasetName, datasetSpec, pad, searchOpts, minMatchIOU, minIgnoreCover, fppis)
+	if err != nil {
+		log.Fatalln("map(test):", err)
+	}
+	for i, x := range subset {
+		perfs[x.Key()] = out[i]
 	}
 	return perfs, nil
 }
