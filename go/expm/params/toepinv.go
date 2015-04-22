@@ -23,6 +23,7 @@ type ToepInvTrainer struct {
 	Lambda float64
 	Len    int
 	Sigma  float64
+	Crop   int
 }
 
 func (t *ToepInvTrainer) Field(name string) string {
@@ -33,6 +34,8 @@ func (t *ToepInvTrainer) Field(name string) string {
 		return fmt.Sprint(t.Len)
 	case "Sigma":
 		return fmt.Sprint(t.Sigma)
+	case "Crop":
+		return fmt.Sprint(t.Crop)
 	default:
 		return ""
 	}
@@ -43,10 +46,11 @@ type ToepInvTrainerSet struct {
 	Lambda []float64
 	Len    []int
 	Sigma  []float64
+	Crop   []int
 }
 
 func (set *ToepInvTrainerSet) Fields() []string {
-	return []string{"Lambda", "Len", "Sigma"}
+	return []string{"Lambda", "Len", "Sigma", "Crop"}
 }
 
 func (set *ToepInvTrainerSet) Enumerate() []Trainer {
@@ -54,8 +58,10 @@ func (set *ToepInvTrainerSet) Enumerate() []Trainer {
 	for _, lambda := range set.Lambda {
 		for _, n := range set.Len {
 			for _, sigma := range set.Sigma {
-				t := &ToepInvTrainer{Lambda: lambda, Len: n, Sigma: sigma}
-				ts = append(ts, t)
+				for _, crop := range set.Crop {
+					t := &ToepInvTrainer{Lambda: lambda, Len: n, Sigma: sigma, Crop: crop}
+					ts = append(ts, t)
+				}
 			}
 		}
 	}
@@ -121,7 +127,7 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 
 	// Obtain approximate inverse.
 	size := image.Pt(t.Len, t.Len)
-	log.Printf("size %v, lambda %v, sigma %v", size, t.Lambda, t.Sigma)
+	log.Printf("size %v, lambda %v, sigma %v, crop %v", size, t.Lambda, t.Sigma, t.Crop)
 	prec, err := approxInverse(covar, size, covar.Bandwidth, t.Lambda)
 	if err != nil {
 		return nil, err
@@ -130,6 +136,20 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	// Subtract negative mean from positive example.
 	delta := toepcov.SubMean(meanPos, distr.Mean)
 	weights := toepcov.MulFFT(prec, delta)
+
+	// Set boundary to zero.
+	interior := image.Rect(0, 0, weights.Width, weights.Height).Inset(t.Crop)
+	for u := 0; u < weights.Width; u++ {
+		for v := 0; v < weights.Height; v++ {
+			if image.Pt(u, v).In(interior) {
+				continue
+			}
+			for p := 0; p < weights.Channels; p++ {
+				weights.Set(u, v, p, 0)
+			}
+		}
+	}
+
 	// Pack weights into image in detection template.
 	tmpl := &detect.FeatTmpl{
 		Scorer:     &slide.AffineScorer{Tmpl: weights},

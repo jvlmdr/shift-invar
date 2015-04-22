@@ -8,7 +8,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/imsamp"
@@ -80,6 +79,7 @@ func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiSc
 	// Cache validated detections.
 	var imvals []*detect.ValSet
 	err = fileutil.Cache(&imvals, fmt.Sprintf("val-dets-%s.json", x.Key()), func() ([]*detect.ValSet, error) {
+		imdets := make(map[string][]detect.Det)
 		var imvals []*detect.ValSet // Shadow variable in parent scope.
 		for i, name := range ims {
 			log.Printf("test image %d / %d: %s", i+1, len(ims), name)
@@ -95,6 +95,8 @@ func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiSc
 			if err != nil {
 				return nil, err
 			}
+			imdets[name] = dets
+			// Validate detections.
 			annot := dataset.Annot(name)
 			imval := detect.Validate(dets, annot.Instances, annot.Ignore, minMatchIOU, minIgnoreCover)
 			imvals = append(imvals, imval.Set())
@@ -102,6 +104,11 @@ func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiSc
 				"load %v, resize %v, feat %v, slide %v, suppr %v",
 				durLoad, durSearch.Resize, durSearch.Feat, durSearch.Slide, durSearch.Suppr,
 			)
+		}
+		// Also save (un-validated) detections.
+		err = fileutil.SaveExt(fmt.Sprintf("dets-%s.json", x.Key()), imdets)
+		if err != nil {
+			return nil, err
 		}
 		return imvals, nil
 	})
@@ -115,9 +122,18 @@ func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiSc
 	for i := range rates {
 		log.Printf("fppi %g, miss rate %g", fppis[i], rates[i])
 	}
-	perf := floats.Sum(rates) / float64(len(rates))
+	perf := logAvg(rates)
 	if err := fileutil.SaveExt(x.PerfFile(), perf); err != nil {
 		return 0, err
 	}
 	return perf, nil
+}
+
+func logAvg(xs []float64) float64 {
+	var t float64
+	for _, x := range xs {
+		t += math.Log(math.Max(0, x))
+	}
+	t /= float64(len(xs))
+	return math.Exp(t)
 }
