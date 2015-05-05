@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
@@ -103,14 +104,15 @@ func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, ph
 		c = append(c, (1-t.Gamma)/t.Lambda/float64(len(neg)))
 	}
 
-	weights, err := setsvm.Train(x, y, c,
-		func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[setsvm.Index]float64) (bool, error) {
-			if epoch < t.Epochs {
-				return false, nil
-			}
-			return true, nil
-		},
-	)
+	termfunc := func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[setsvm.Index]float64) (bool, error) {
+		log.Printf("bounds: [%.6g, %.6g]", g, f)
+		if epoch < t.Epochs {
+			return false, nil
+		}
+		return true, nil
+	}
+
+	weights, err := setsvm.Train(x, y, c, termfunc)
 	if err != nil {
 		return nil, err
 	}
