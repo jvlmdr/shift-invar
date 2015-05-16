@@ -31,7 +31,7 @@ func main() {
 		testDatasetName  = flag.String("test-dataset", "", "{inria, caltech}")
 		testDatasetSpec  = flag.String("test-dataset-spec", "", "Dataset parameters (JSON)")
 		numFolds         = flag.Int("folds", 5, "Cross-validation folds")
-		covarDir         = flag.String("covar-dir", "", "Directory to which CovarFile is relative")
+		covarDir         = flag.String("covar-dir", "", "Directory to which StatsFile is relative")
 		// Positive example configuration.
 		pad           = flag.Int("pad", 0, "Dilate bounding box to obtain region from which features are extracted")
 		aspectReject  = flag.Float64("reject-aspect", 0, "Reject examples not between r and 1/r times aspect ratio")
@@ -93,7 +93,7 @@ func main() {
 		fmt.Printf("%s\t%s\n", p.Key(), p.ID())
 	}
 
-	// Load data and determine cross-validation splits.
+	// Load training data and determine cross-validation splits.
 	// Use same partitions for all methods.
 	trainData, err := data.Load(*trainDatasetName, *trainDatasetSpec)
 	if err != nil {
@@ -105,18 +105,14 @@ func main() {
 	}
 	// Split images into folds.
 	// Cache splits due to their randomness.
-	var foldIms [][]string
-	err = fileutil.Cache(&foldIms, "folds.json", func() [][]string {
+	var trainSplits [][]string
+	err = fileutil.Cache(&trainSplits, "folds.json", func() [][]string {
 		return split(trainIms, *numFolds)
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Complement of each fold is its training data.
-	foldTrainIms := make([][]string, len(foldIms))
-	for i := range foldIms {
-		foldTrainIms[i] = mergeExcept(foldIms, i)
-	}
+
 	// Load testing data.
 	testData, err := data.Load(*testDatasetName, *testDatasetSpec)
 	if err != nil {
@@ -126,50 +122,101 @@ func main() {
 	if len(testIms) == 0 {
 		log.Fatal("testing dataset is empty")
 	}
+	// Split testing data into folds too.
+	var testSplits [][]string
+	err = fileutil.Cache(&testSplits, "test-folds.json", func() [][]string {
+		return split(testIms, *numFolds)
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Learn template for each configuration for each fold.
-	// Save weights to file and avoid re-computing weights
-	// for configurations which have a file.
-	xvalTrainInputs := make([]TrainInput, 0, len(foldIms)*len(params))
-	for fold := range foldIms {
-		for _, p := range params {
-			xvalTrainInputs = append(xvalTrainInputs, TrainInput{CrossValKey(p, fold), foldTrainIms[fold]})
+	datasets := map[string]Dataset{
+		"train": Dataset{Name: *trainDatasetName, Spec: *trainDatasetSpec},
+		"test":  Dataset{Name: *testDatasetName, Spec: *testDatasetSpec},
+	}
+
+	sets := map[string]map[string][]string{
+		"train": make(map[string][]string),
+		"test":  make(map[string][]string),
+	}
+	sets["train"]["all"] = trainIms
+	for i := range trainSplits {
+		sets["train"][fmt.Sprintf("fold-%d", i)] = trainSplits[i]
+		// Complement of each fold.
+		sets["train"][fmt.Sprintf("excl-fold-%d", i)] = mergeExcept(trainSplits, i)
+	}
+	sets["test"]["all"] = testIms
+	for i := range testSplits {
+		sets["test"][fmt.Sprintf("fold-%d", i)] = testSplits[i]
+	}
+
+	crossVal := Experiment{TrainDataset: "train", TestDataset: "train", SubsetPairs: make([]TrainTestPair, *numFolds)}
+	for i := range crossVal.SubsetPairs {
+		crossVal.SubsetPairs[i] = TrainTestPair{
+			Train: fmt.Sprintf("excl-fold-%d", i),
+			Test:  fmt.Sprintf("fold-%d", i),
 		}
 	}
-	err = trainMap(xvalTrainInputs, *trainDatasetName, *trainDatasetSpec, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Test each detector on its validation fold.
-	xvalTestInputs := make([]TestInput, 0, len(foldIms)*len(params))
-	for fold := range foldIms {
-		for _, p := range params {
-			xvalTestInputs = append(xvalTestInputs, TestInput{CrossValKey(p, fold), foldIms[fold]})
+	full := Experiment{TrainDataset: "train", TestDataset: "test", SubsetPairs: []TrainTestPair{{Train: "all", Test: "all"}}}
+	testVar := Experiment{TrainDataset: "train", TestDataset: "test", SubsetPairs: make([]TrainTestPair, *numFolds)}
+	for i := range testVar.SubsetPairs {
+		testVar.SubsetPairs[i] = TrainTestPair{
+			Train: fmt.Sprintf("excl-fold-%d", i),
+			Test:  fmt.Sprintf("fold-%d", i),
 		}
 	}
-	xvalPerfs, err := testMap(xvalTestInputs, *trainDatasetName, *trainDatasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
-	if err != nil {
-		log.Fatal(err)
+	expms := map[string]Experiment{
+		"cross-val": crossVal,
+		"full":      full,
+		"test-var":  testVar,
 	}
+	expmNames := []string{"cross-val", "full", "test-var"}
+	expmPerfs := make(map[string]map[string]float64)
 
-	trainInputs := make([]TrainInput, 0, len(params))
-	for _, p := range params {
-		trainInputs = append(trainInputs, TrainInput{TestKey(p), trainIms})
-	}
-	err = trainMap(trainInputs, *trainDatasetName, *trainDatasetSpec, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
-	if err != nil {
-		log.Fatal(err)
-	}
+	for _, expmName := range expmNames {
+		expm := expms[expmName]
+		trainDataset := datasets[expm.TrainDataset]
+		trainInputs := make([]TrainInput, 0, len(expm.SubsetPairs)*len(params))
+		for _, subsets := range expm.SubsetPairs {
+			for _, p := range params {
+				input := TrainInput{
+					DetectorKey: DetectorKey{
+						Param:    p,
+						TrainSet: Set{Dataset: expm.TrainDataset, Subset: subsets.Train},
+					},
+					Images: sets[expm.TrainDataset][subsets.Train],
+				}
+				trainInputs = append(trainInputs, input)
+			}
+		}
+		err = trainMap(trainInputs, trainDataset.Name, trainDataset.Spec, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	// Test each detector on the testing set.
-	testInputs := make([]TestInput, 0, len(params))
-	for _, p := range params {
-		testInputs = append(testInputs, TestInput{TestKey(p), testIms})
-	}
-	testPerfs, err := testMap(testInputs, *testDatasetName, *testDatasetSpec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
-	if err != nil {
-		log.Fatal(err)
+		testDataset := datasets[expm.TestDataset]
+		testInputs := make([]TestInput, 0, len(expm.SubsetPairs)*len(params))
+		for _, subsets := range expm.SubsetPairs {
+			for _, p := range params {
+				input := TestInput{
+					ResultsKey: ResultsKey{
+						DetectorKey: DetectorKey{
+							Param:    p,
+							TrainSet: Set{Dataset: expm.TrainDataset, Subset: subsets.Train},
+						},
+						TestSet: Set{Dataset: expm.TestDataset, Subset: subsets.Test},
+					},
+					Images: sets[expm.TestDataset][subsets.Test],
+				}
+				testInputs = append(testInputs, input)
+			}
+		}
+		perfs, err := testMap(testInputs, testDataset.Name, testDataset.Spec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+		if err != nil {
+			log.Fatal(err)
+		}
+		expmPerfs[expmName] = perfs
 	}
 
 	// Dump all results to text file.
@@ -181,39 +228,54 @@ func main() {
 	defer out.Close()
 	buf := bufio.NewWriter(out)
 	defer buf.Flush()
+
 	fmt.Fprint(buf, "Key")
 	for _, name := range fields {
 		fmt.Fprintf(buf, "\t%s", name)
 	}
-	for fold := range foldIms {
-		fmt.Fprintf(buf, "\t%d", fold)
+	for _, expmName := range expmNames {
+		expm := expms[expmName]
+		for _, subsets := range expm.SubsetPairs {
+			trainSetName := Set{Dataset: expm.TrainDataset, Subset: subsets.Train}
+			testSetName := Set{Dataset: expm.TestDataset, Subset: subsets.Test}
+			fmt.Fprintf(buf, "\t%s-%s", trainSetName.Key(), testSetName.Key())
+		}
+		if len(expm.SubsetPairs) > 1 {
+			fmt.Fprint(buf, "\tMean")
+			fmt.Fprint(buf, "\tVar")
+		}
 	}
-	fmt.Fprint(buf, "\tCrossValMissRateMean\tCrossValMissRateVar")
-	fmt.Fprintln(buf, "\tMissRate")
+	fmt.Fprintln(buf)
+
 	for _, p := range params {
 		fmt.Fprint(buf, p.Key())
 		for _, name := range fields {
 			fmt.Fprintf(buf, "\t%s", p.Field(name))
 		}
-		var mean, stddev float64
-		for fold := 0; fold < *numFolds; fold++ {
-			perf, ok := xvalPerfs[CrossValKey(p, fold).Key()]
-			if !ok {
-				log.Fatalln("did not find cross-val perf:", CrossValKey(p, fold), p.ID())
+		for _, expmName := range expmNames {
+			expm := expms[expmName]
+			var mean, stddev float64
+			for _, subsets := range expm.SubsetPairs {
+				resultParam := ResultsKey{
+					DetectorKey: DetectorKey{
+						Param:    p,
+						TrainSet: Set{Dataset: expm.TrainDataset, Subset: subsets.Train},
+					},
+					TestSet: Set{Dataset: expm.TestDataset, Subset: subsets.Test},
+				}
+				perf := expmPerfs[expmName][resultParam.Key()]
+				mean += perf
+				stddev += perf * perf
+				fmt.Fprintf(buf, "\t%g", perf)
 			}
-			mean += perf
-			stddev += perf * perf
-			fmt.Fprintf(buf, "\t%g", perf)
+			n := len(expm.SubsetPairs)
+			if n > 1 {
+				mean = mean / float64(n)
+				stddev = math.Sqrt(stddev/float64(n) - mean*mean)
+				fmt.Fprintf(buf, "\t%g", mean)
+				fmt.Fprintf(buf, "\t%g", stddev)
+			}
 		}
-		mean = mean / float64(*numFolds)
-		stddev = math.Sqrt(stddev/float64(*numFolds) - mean*mean)
-		fmt.Fprintf(buf, "\t%g", mean)
-		fmt.Fprintf(buf, "\t%g", stddev)
-		testPerf, ok := testPerfs[TestKey(p).Key()]
-		if !ok {
-			log.Fatalln("did not find test perf:", TestKey(p), p.ID())
-		}
-		fmt.Fprintf(buf, "\t%g", testPerf)
 		fmt.Fprintln(buf)
 	}
 }

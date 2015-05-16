@@ -173,7 +173,7 @@ func (xs byScore) Len() int           { return len(xs) }
 func (xs byScore) Less(i, j int) bool { return xs[i].Score < xs[j].Score }
 func (xs byScore) Swap(i, j int)      { xs[i], xs[j] = xs[j], xs[i] }
 
-func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, covarFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
+func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
 	// Over-ride MinScore in searchOpts.
 	if t.RequirePos {
 		searchOpts.DetFilter.MinScore = 0

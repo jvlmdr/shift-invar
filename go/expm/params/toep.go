@@ -51,7 +51,7 @@ func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
 	return ts
 }
 
-func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, covarFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
+func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -74,7 +74,7 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 	floats.Scale(1/float64(len(pos)), meanPos.Elems)
 
 	// Load covariance from file.
-	total, err := toepcov.LoadTotalExt(covarFile)
+	total, err := toepcov.LoadTotalExt(statsFile)
 	if err != nil {
 		return nil, err
 	}

@@ -18,33 +18,6 @@ func init() {
 	dstrfn.RegisterMap("train", false, dstrfn.ConfigFunc(train))
 }
 
-// DetectorKey is the Cartesian product of detector parameters
-// and a training set identifier.
-type DetectorKey struct {
-	Ident string // e.g. "fold-2" or "test"
-	Param
-}
-
-func (x DetectorKey) Key() string {
-	return fmt.Sprintf("param-%s-%s", x.Param.Key(), x.Ident)
-}
-
-func (x DetectorKey) TmplFile() string {
-	return fmt.Sprintf("tmpl-%s.gob", x.Key())
-}
-
-func (x DetectorKey) PerfFile() string {
-	return fmt.Sprintf("perf-%s.json", x.Key())
-}
-
-func CrossValKey(p Param, fold int) DetectorKey {
-	return DetectorKey{Ident: fmt.Sprintf("fold-%d", fold), Param: p}
-}
-
-func TestKey(p Param) DetectorKey {
-	return DetectorKey{Ident: "test", Param: p}
-}
-
 type TrainInput struct {
 	DetectorKey
 	Images []string
@@ -80,8 +53,8 @@ func train(u TrainInput, datasetName, datasetSpec, covarDir string, examplePad i
 	negIms = selectSubset(negIms, randSubset(len(negIms), numNegIms))
 	log.Println("number of negative images:", len(negIms))
 
-	covarFile := path.Join(covarDir, u.Feat.CovarFile)
-	tmpl, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, covarFile, region, exampleOpts, addFlip, interp, searchOpts)
+	statsFile := path.Join(covarDir, u.Feat.StatsFile)
+	tmpl, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, statsFile, region, exampleOpts, addFlip, interp, searchOpts)
 	if err != nil {
 		return "", err
 	}
