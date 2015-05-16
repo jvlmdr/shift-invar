@@ -23,7 +23,7 @@ type TrainInput struct {
 	Images []string
 }
 
-func train(u TrainInput, datasetName, datasetSpec, covarDir string, examplePad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
+func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, examplePad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
 	fmt.Printf("%s\t%s\n", u.Param.Key(), u.Param.ID())
 	// Determine dimensions of template.
 	region := detect.PadRect{
@@ -35,7 +35,7 @@ func train(u TrainInput, datasetName, datasetSpec, covarDir string, examplePad i
 	searchOpts := searchOptsMsg.Content(phi, imsamp.Continue, u.Overlap.Spec.Eval)
 
 	// Re-load dataset on execution host.
-	dataset, err := data.Load(datasetName, datasetSpec)
+	dataset, err := data.Load(datasetMessage.Name, datasetMessage.Spec)
 	if err != nil {
 		return "", err
 	}

@@ -4,17 +4,20 @@ import (
 	"fmt"
 )
 
+// Experiment specified by a collection of training and testing sets.
+// The mean and standard deviation of the results will be reported.
+// It is assumed that all training sets are subsets of one dataset,
+// and the same for the testing sets.
+// Each set of examples is identified by a Dataset string and a Subset string.
 type Experiment struct {
 	TrainDataset string // Either "train" or "test".
 	TestDataset  string
-	SubsetPairs  []TrainTestPair
+	SubsetPairs  []SubsetPair
 }
 
-type Dataset struct {
-	Name, Spec string
-}
-
-type TrainTestPair struct {
+// SubsetPair contains the name of a training and testing subset.
+// The subsets may belong to distinct datasets.
+type SubsetPair struct {
 	Train, Test string
 }
 

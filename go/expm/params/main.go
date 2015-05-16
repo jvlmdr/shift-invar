@@ -24,14 +24,20 @@ func init() {
 	}
 }
 
+type DatasetMessage struct {
+	Name, Spec string
+}
+
 func main() {
+	var trainDatasetMessage, testDatasetMessage DatasetMessage
+	flag.StringVar(&trainDatasetMessage.Name, "train-dataset", "", "{inria, caltech}")
+	flag.StringVar(&trainDatasetMessage.Spec, "train-dataset-spec", "", "Dataset parameters (JSON)")
+	flag.StringVar(&testDatasetMessage.Name, "test-dataset", "", "{inria, caltech}")
+	flag.StringVar(&testDatasetMessage.Spec, "test-dataset-spec", "", "Dataset parameters (JSON)")
+
 	var (
-		trainDatasetName = flag.String("train-dataset", "", "{inria, caltech}")
-		trainDatasetSpec = flag.String("train-dataset-spec", "", "Dataset parameters (JSON)")
-		testDatasetName  = flag.String("test-dataset", "", "{inria, caltech}")
-		testDatasetSpec  = flag.String("test-dataset-spec", "", "Dataset parameters (JSON)")
-		numFolds         = flag.Int("folds", 5, "Cross-validation folds")
-		covarDir         = flag.String("covar-dir", "", "Directory to which StatsFile is relative")
+		numFolds = flag.Int("folds", 5, "Cross-validation folds")
+		covarDir = flag.String("covar-dir", "", "Directory to which StatsFile is relative")
 		// Positive example configuration.
 		pad           = flag.Int("pad", 0, "Dilate bounding box to obtain region from which features are extracted")
 		aspectReject  = flag.Float64("reject-aspect", 0, "Reject examples not between r and 1/r times aspect ratio")
@@ -95,11 +101,11 @@ func main() {
 
 	// Load training data and determine cross-validation splits.
 	// Use same partitions for all methods.
-	trainData, err := data.Load(*trainDatasetName, *trainDatasetSpec)
+	trainDataset, err := data.Load(trainDatasetMessage.Name, trainDatasetMessage.Spec)
 	if err != nil {
 		log.Fatal(err)
 	}
-	trainIms := trainData.Images()
+	trainIms := trainDataset.Images()
 	if len(trainIms) == 0 {
 		log.Fatal("training dataset is empty")
 	}
@@ -114,11 +120,11 @@ func main() {
 	}
 
 	// Load testing data.
-	testData, err := data.Load(*testDatasetName, *testDatasetSpec)
+	testDataset, err := data.Load(testDatasetMessage.Name, testDatasetMessage.Spec)
 	if err != nil {
 		log.Fatal(err)
 	}
-	testIms := testData.Images()
+	testIms := testDataset.Images()
 	if len(testIms) == 0 {
 		log.Fatal("testing dataset is empty")
 	}
@@ -131,12 +137,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	datasets := map[string]Dataset{
-		"train": Dataset{Name: *trainDatasetName, Spec: *trainDatasetSpec},
-		"test":  Dataset{Name: *testDatasetName, Spec: *testDatasetSpec},
+	datasets := map[string]DatasetMessage{
+		"train": DatasetMessage{Name: trainDatasetMessage.Name, Spec: trainDatasetMessage.Spec},
+		"test":  DatasetMessage{Name: testDatasetMessage.Name, Spec: testDatasetMessage.Spec},
 	}
 
-	sets := map[string]map[string][]string{
+	sets := map[string]SubsetImages{
 		"train": make(map[string][]string),
 		"test":  make(map[string][]string),
 	}
@@ -151,17 +157,17 @@ func main() {
 		sets["test"][fmt.Sprintf("fold-%d", i)] = testSplits[i]
 	}
 
-	crossVal := Experiment{TrainDataset: "train", TestDataset: "train", SubsetPairs: make([]TrainTestPair, *numFolds)}
+	crossVal := Experiment{TrainDataset: "train", TestDataset: "train", SubsetPairs: make([]SubsetPair, *numFolds)}
 	for i := range crossVal.SubsetPairs {
-		crossVal.SubsetPairs[i] = TrainTestPair{
+		crossVal.SubsetPairs[i] = SubsetPair{
 			Train: fmt.Sprintf("excl-fold-%d", i),
 			Test:  fmt.Sprintf("fold-%d", i),
 		}
 	}
-	full := Experiment{TrainDataset: "train", TestDataset: "test", SubsetPairs: []TrainTestPair{{Train: "all", Test: "all"}}}
-	testVar := Experiment{TrainDataset: "train", TestDataset: "test", SubsetPairs: make([]TrainTestPair, *numFolds)}
+	full := Experiment{TrainDataset: "train", TestDataset: "test", SubsetPairs: []SubsetPair{{Train: "all", Test: "all"}}}
+	testVar := Experiment{TrainDataset: "train", TestDataset: "test", SubsetPairs: make([]SubsetPair, *numFolds)}
 	for i := range testVar.SubsetPairs {
-		testVar.SubsetPairs[i] = TrainTestPair{
+		testVar.SubsetPairs[i] = SubsetPair{
 			Train: fmt.Sprintf("excl-fold-%d", i),
 			Test:  fmt.Sprintf("fold-%d", i),
 		}
@@ -174,56 +180,138 @@ func main() {
 	expmNames := []string{"cross-val", "full", "test-var"}
 	expmPerfs := make(map[string]map[string]float64)
 
+	trainMapFunc := func(trainInputs []TrainInput, trainDataset DatasetMessage) error {
+		return trainMap(trainInputs, trainDataset, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
+	}
+
+	testMapFunc := func(testInputs []TestInput, testDataset DatasetMessage) (map[string]float64, error) {
+		return testMap(testInputs, testDataset, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+	}
+
 	for _, expmName := range expmNames {
 		expm := expms[expmName]
-		trainDataset := datasets[expm.TrainDataset]
-		trainInputs := make([]TrainInput, 0, len(expm.SubsetPairs)*len(params))
-		for _, subsets := range expm.SubsetPairs {
-			for _, p := range params {
-				input := TrainInput{
-					DetectorKey: DetectorKey{
-						Param:    p,
-						TrainSet: Set{Dataset: expm.TrainDataset, Subset: subsets.Train},
-					},
-					Images: sets[expm.TrainDataset][subsets.Train],
-				}
-				trainInputs = append(trainInputs, input)
-			}
-		}
-		err = trainMap(trainInputs, trainDataset.Name, trainDataset.Spec, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		testDataset := datasets[expm.TestDataset]
-		testInputs := make([]TestInput, 0, len(expm.SubsetPairs)*len(params))
-		for _, subsets := range expm.SubsetPairs {
-			for _, p := range params {
-				input := TestInput{
-					ResultsKey: ResultsKey{
-						DetectorKey: DetectorKey{
-							Param:    p,
-							TrainSet: Set{Dataset: expm.TrainDataset, Subset: subsets.Train},
-						},
-						TestSet: Set{Dataset: expm.TestDataset, Subset: subsets.Test},
-					},
-					Images: sets[expm.TestDataset][subsets.Test],
-				}
-				testInputs = append(testInputs, input)
-			}
-		}
-		perfs, err := testMap(testInputs, testDataset.Name, testDataset.Spec, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+		perfs, err := runExperiment(expm, sets, datasets, params, trainMapFunc, testMapFunc)
 		if err != nil {
 			log.Fatal(err)
 		}
 		expmPerfs[expmName] = perfs
 	}
 
+	if err := printResults(paramset, params, expmNames, expms, expmPerfs); err != nil {
+		log.Fatal(err)
+	}
+}
+
+type SubsetImages map[string][]string
+
+type TrainMapFunc func([]TrainInput, DatasetMessage) error
+
+type TestMapFunc func(testInputs []TestInput, testDataset DatasetMessage) (map[string]float64, error)
+
+func runExperiment(expm Experiment, sets map[string]SubsetImages, datasets map[string]DatasetMessage, params []Param, trainMapFunc TrainMapFunc, testMapFunc TestMapFunc) (map[string]float64, error) {
+	var err error
+	trainDataset := datasets[expm.TrainDataset]
+	trainInputs := make([]TrainInput, 0, len(expm.SubsetPairs)*len(params))
+	for _, subsets := range expm.SubsetPairs {
+		for _, p := range params {
+			input := TrainInput{
+				DetectorKey: DetectorKey{
+					Param:    p,
+					TrainSet: Set{Dataset: expm.TrainDataset, Subset: subsets.Train},
+				},
+				Images: sets[expm.TrainDataset][subsets.Train],
+			}
+			trainInputs = append(trainInputs, input)
+		}
+	}
+	err = trainMapFunc(trainInputs, trainDataset)
+	if err != nil {
+		return nil, err
+	}
+
+	testDataset := datasets[expm.TestDataset]
+	testInputs := make([]TestInput, 0, len(expm.SubsetPairs)*len(params))
+	for _, subsets := range expm.SubsetPairs {
+		for _, p := range params {
+			input := TestInput{
+				ResultsKey: ResultsKey{
+					DetectorKey: DetectorKey{
+						Param:    p,
+						TrainSet: Set{Dataset: expm.TrainDataset, Subset: subsets.Train},
+					},
+					TestSet: Set{Dataset: expm.TestDataset, Subset: subsets.Test},
+				},
+				Images: sets[expm.TestDataset][subsets.Test],
+			}
+			testInputs = append(testInputs, input)
+		}
+	}
+	return testMapFunc(testInputs, testDataset)
+}
+
+func trainMap(inputs []TrainInput, dataset DatasetMessage, covarDir string, pad int, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts MultiScaleOptsMessage) error {
+	var subset []TrainInput
+	for _, p := range inputs {
+		if _, err := os.Stat(p.TmplFile()); os.IsNotExist(err) {
+			subset = append(subset, p)
+		} else if err != nil {
+			log.Fatalln("check if template cache exists:", err)
+		}
+	}
+	if len(subset) == 0 {
+		log.Println("all templates have cache file")
+		return nil
+	}
+	log.Printf("number of detectors to train: %d / %d", len(subset), len(inputs))
+	// Discard output since result is saved to file.
+	err := dstrfn.MapFunc("train", new([]string), subset, dataset, covarDir, pad, exampleOpts, flip, interp, searchOpts)
+	if err != nil {
+		log.Fatalln("map(train):", err)
+	}
+	return nil
+}
+
+func testMap(inputs []TestInput, dataset DatasetMessage, pad int, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]float64, error) {
+	perfs := make(map[string]float64)
+	// Identify which params have not been tested yet.
+	var subset []TestInput
+	for _, x := range inputs {
+		fname := x.PerfFile()
+		if _, err := os.Stat(fname); os.IsNotExist(err) {
+			subset = append(subset, x)
+			continue
+		} else if err != nil {
+			log.Fatalf(`stat cache file "%s": %v`, fname, err)
+		}
+		// Attempt to load file.
+		var perf float64
+		if err := fileutil.LoadExt(fname, &perf); err != nil {
+			log.Fatalf(`load cache file "%s": %v`, fname, err)
+		}
+		perfs[x.Key()] = perf
+	}
+
+	if len(subset) == 0 {
+		log.Println("all results have cache file")
+		return perfs, nil
+	}
+	var out []float64
+	err := dstrfn.MapFunc("test", &out, subset, dataset, pad, searchOpts, minMatchIOU, minIgnoreCover, fppis)
+	if err != nil {
+		log.Fatalln("map(test):", err)
+	}
+	for i, x := range subset {
+		perfs[x.Key()] = out[i]
+	}
+	return perfs, nil
+}
+
+func printResults(paramset *ParamSet, params []Param, expmNames []string, expms map[string]Experiment, expmPerfs map[string]map[string]float64) error {
 	// Dump all results to text file.
 	fields := paramset.Fields()
 	out, err := os.Create("perfs.txt")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer out.Close()
 	buf := bufio.NewWriter(out)
@@ -278,61 +366,5 @@ func main() {
 		}
 		fmt.Fprintln(buf)
 	}
-}
-
-func trainMap(inputs []TrainInput, datasetName, datasetSpec, covarDir string, pad int, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts MultiScaleOptsMessage) error {
-	var subset []TrainInput
-	for _, p := range inputs {
-		if _, err := os.Stat(p.TmplFile()); os.IsNotExist(err) {
-			subset = append(subset, p)
-		} else if err != nil {
-			log.Fatalln("check if template cache exists:", err)
-		}
-	}
-	if len(subset) == 0 {
-		log.Println("all templates have cache file")
-		return nil
-	}
-	log.Printf("number of detectors to train: %d / %d", len(subset), len(inputs))
-	// Discard output since result is saved to file.
-	err := dstrfn.MapFunc("train", new([]string), subset, datasetName, datasetSpec, covarDir, pad, exampleOpts, flip, interp, searchOpts)
-	if err != nil {
-		log.Fatalln("map(train):", err)
-	}
 	return nil
-}
-
-func testMap(inputs []TestInput, datasetName, datasetSpec string, pad int, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]float64, error) {
-	perfs := make(map[string]float64)
-	// Identify which params have not been tested yet.
-	var subset []TestInput
-	for _, x := range inputs {
-		fname := x.PerfFile()
-		if _, err := os.Stat(fname); os.IsNotExist(err) {
-			subset = append(subset, x)
-			continue
-		} else if err != nil {
-			log.Fatalf(`stat cache file "%s": %v`, fname, err)
-		}
-		// Attempt to load file.
-		var perf float64
-		if err := fileutil.LoadExt(fname, &perf); err != nil {
-			log.Fatalf(`load cache file "%s": %v`, fname, err)
-		}
-		perfs[x.Key()] = perf
-	}
-
-	if len(subset) == 0 {
-		log.Println("all results have cache file")
-		return perfs, nil
-	}
-	var out []float64
-	err := dstrfn.MapFunc("test", &out, subset, datasetName, datasetSpec, pad, searchOpts, minMatchIOU, minIgnoreCover, fppis)
-	if err != nil {
-		log.Fatalln("map(test):", err)
-	}
-	for i, x := range subset {
-		perfs[x.Key()] = out[i]
-	}
-	return perfs, nil
 }

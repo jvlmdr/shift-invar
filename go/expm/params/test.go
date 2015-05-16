@@ -54,7 +54,7 @@ type TestInput struct {
 	Images []string
 }
 
-func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
+func test(x TestInput, datasetMessage DatasetMessage, pad int, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
 	fmt.Printf("%s\t%s\n", x.Param.Key(), x.Param.ID())
 	opts := optsMsg.Content(x.Param.Feat.Transform.Transform(), imsamp.Continue, x.Param.Overlap.Spec.Eval)
 	// Load template from disk.
@@ -64,7 +64,7 @@ func test(x TestInput, datasetName, datasetSpec string, pad int, optsMsg MultiSc
 	}
 
 	// Re-load dataset on execution host.
-	dataset, err := data.Load(datasetName, datasetSpec)
+	dataset, err := data.Load(datasetMessage.Name, datasetMessage.Spec)
 	if err != nil {
 		return 0, err
 	}
