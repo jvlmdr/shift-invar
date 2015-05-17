@@ -1,6 +1,8 @@
 package imcov
 
 import (
+	"fmt"
+
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/lin-go/mat"
 )
@@ -179,4 +181,59 @@ func (cov *Covar) Matrix() *mat.Mat {
 		}
 	}
 	return s
+}
+
+func NewCovarFromMatrix(s mat.Const, width, height, channels int) (*Covar, error) {
+	if err := errIfMatrixDimsInvalid(s, width, height, channels); err != nil {
+		// Avoid instantiating matrix.
+		return nil, err
+	}
+	cov := NewCovar(width, height, channels)
+	copyFromMatrix(cov, s)
+	return cov, nil
+}
+
+func CopyFromMatrix(cov *Covar, s mat.Const) error {
+	if err := errIfMatrixDimsInvalid(s, cov.Width, cov.Height, cov.Channels); err != nil {
+		return err
+	}
+	copyFromMatrix(cov, s)
+	return nil
+}
+
+func errIfMatrixDimsInvalid(s mat.Const, width, height, channels int) error {
+	m, n := s.Dims()
+	if m != n {
+		return fmt.Errorf("matrix is not square: %dx%d", m, n)
+	}
+	if n != width*height*channels {
+		return fmt.Errorf("size of matrix is incorrect: matrix %d, width %d, height %d, channels %d", n, width, height, channels)
+	}
+	return nil
+}
+
+// After dimensions have been checked.
+func copyFromMatrix(cov *Covar, s mat.Const) {
+	// Function to vectorize indices.
+	var (
+		ei  = cov.Channels * cov.Height
+		ej  = cov.Channels
+		ek  = 1
+		vec = func(i, j, k int) int { return i*ei + j*ej + k*ek }
+	)
+	for u := 0; u < cov.Width; u++ {
+		for v := 0; v < cov.Height; v++ {
+			for w := 0; w < cov.Channels; w++ {
+				uvw := vec(u, v, w)
+				for i := 0; i < cov.Width; i++ {
+					for j := 0; j < cov.Height; j++ {
+						for k := 0; k < cov.Channels; k++ {
+							ijk := vec(i, j, k)
+							cov.Set(u, v, w, i, j, k, s.At(uvw, ijk))
+						}
+					}
+				}
+			}
+		}
+	}
 }
