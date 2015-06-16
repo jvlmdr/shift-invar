@@ -25,7 +25,8 @@ type Set struct {
 	Dataset, Subset string
 }
 
-func (x Set) Key() string {
+// Ident returns a short string which identifies the set.
+func (x Set) Ident() string {
 	return fmt.Sprintf("%s-%s", x.Dataset, x.Subset)
 }
 
@@ -36,12 +37,12 @@ type DetectorKey struct {
 	TrainSet Set
 }
 
-func (x DetectorKey) Key() string {
-	return fmt.Sprintf("param-%s-%s", x.Param.Key(), x.TrainSet.Key())
+func (x DetectorKey) Ident() string {
+	return fmt.Sprintf("param-%s-%s", x.Param.Ident(), x.TrainSet.Ident())
 }
 
 func (x DetectorKey) TmplFile() string {
-	return fmt.Sprintf("tmpl-%s.gob", x.Key())
+	return fmt.Sprintf("tmpl-%s.gob", x.Ident())
 }
 
 type ResultsKey struct {
@@ -49,10 +50,10 @@ type ResultsKey struct {
 	TestSet Set
 }
 
-func (x ResultsKey) Key() string {
-	return fmt.Sprintf("param-%s-%s-%s", x.Param.Key(), x.TrainSet.Key(), x.TestSet.Key())
+func (x ResultsKey) Ident() string {
+	return fmt.Sprintf("param-%s-%s-%s", x.Param.Ident(), x.TrainSet.Ident(), x.TestSet.Ident())
 }
 
 func (x ResultsKey) PerfFile() string {
-	return fmt.Sprintf("perf-%s.json", x.Key())
+	return fmt.Sprintf("perf-%s.json", x.Ident())
 }

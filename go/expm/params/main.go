@@ -7,10 +7,10 @@ import (
 	"log"
 	"math"
 	"os"
+	"strconv"
 
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
-	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-file/fileutil"
 	"github.com/jvlmdr/go-pbs-pro/dstrfn"
 	"github.com/jvlmdr/shift-invar/go/data"
@@ -39,21 +39,15 @@ func main() {
 		numFolds = flag.Int("folds", 5, "Cross-validation folds")
 		covarDir = flag.String("covar-dir", "", "Directory to which StatsFile is relative")
 		// Positive example configuration.
-		pad           = flag.Int("pad", 0, "Dilate bounding box to obtain region from which features are extracted")
-		aspectReject  = flag.Float64("reject-aspect", 0, "Reject examples not between r and 1/r times aspect ratio")
-		resizeFor     = flag.String("resize-for", "area", "One of {area, width, height, fit, fill}")
-		maxTrainScale = flag.Float64("max-train-scale", 2, "Discount examples which would need to be scaled more than this")
-		flip          = flag.Bool("flip", false, "Incorporate horizontally mirrored examples?")
-		trainInterp   = flag.Int("train-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
+		flip        = flag.Bool("flip", false, "Incorporate horizontally mirrored examples?")
+		trainInterp = flag.Int("train-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
 		// Test configuration.
-		pyrStep      = flag.Float64("pyr-step", 1.07, "Geometric scale steps in image pyramid")
-		maxTestScale = flag.Float64("max-test-scale", 2, "Do not zoom in further than this")
-		testInterp   = flag.Int("test-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
-		detsPerIm    = flag.Int("dets-per-im", 0, "Maximum number of detections per image")
-		testMargin   = flag.Int("margin", 0, "Margin to add to image before taking features at test time")
-		localMax     = flag.Bool("local-max", true, "Suppress detections which are less than a neighbor?")
-		minMatch     = flag.Float64("min-match", 0.5, "Minimum intersection-over-union to validate a true positive")
-		minIgnore    = flag.Float64("min-ignore", 0.5, "Minimum that a region can be covered to be ignored")
+		testInterp = flag.Int("test-interp", 1, "Interpolation for multi-scale search (0=nearest, 1=linear, 2=cubic)")
+		detsPerIm  = flag.Int("dets-per-im", 0, "Maximum number of detections per image")
+		localMax   = flag.Bool("local-max", true, "Suppress detections which are less than a neighbor?")
+		minMatch   = flag.Float64("min-match", 0.5, "Minimum intersection-over-union to validate a true positive")
+		minIgnore  = flag.Float64("min-ignore", 0.5, "Minimum that a region can be covered to be ignored")
+		doTestVar  = flag.Bool("do-test-var", false, "Run experiments to measure variance of performance on test set?")
 	)
 	flag.Parse()
 	dstrfn.ExecIfSlave()
@@ -73,30 +67,20 @@ func main() {
 	fppis := make([]float64, 9)
 	floats.LogSpan(fppis, 1e-2, 1)
 
-	// Train configuration.
-	exampleOpts := data.ExampleOpts{
-		AspectReject: *aspectReject,
-		FitMode:      *resizeFor,
-		MaxScale:     *maxTrainScale,
-	}
-
 	// Test configuration.
 	// Transform and Overlap are taken from Param.
 	searchOpts := MultiScaleOptsMessage{
-		MaxScale:  *maxTestScale,
-		PyrStep:   *pyrStep,
-		Interp:    resize.InterpolationFunction(*testInterp),
-		PadMargin: feat.UniformMargin(*testMargin),
+		Interp: resize.InterpolationFunction(*testInterp),
 		DetFilter: detect.DetFilter{
 			LocalMax: *localMax,
-			MinScore: 0,
+			MinScore: 0, // Ignored; later set to -inf.
 		},
 		SupprMaxNum: *detsPerIm,
 	}
 
 	params := paramset.Enumerate()
 	for _, p := range params {
-		fmt.Printf("%s\t%s\n", p.Key(), p.ID())
+		fmt.Printf("%s\t%s\n", p.Ident(), p.Serialize())
 	}
 
 	// Load training data and determine cross-validation splits.
@@ -177,15 +161,18 @@ func main() {
 		"full":      full,
 		"test-var":  testVar,
 	}
-	expmNames := []string{"cross-val", "full", "test-var"}
+	expmNames := []string{"cross-val", "full"}
+	if *doTestVar {
+		expmNames = append(expmNames, "test-var")
+	}
 	expmPerfs := make(map[string]map[string]float64)
 
 	trainMapFunc := func(trainInputs []TrainInput, trainDataset DatasetMessage) error {
-		return trainMap(trainInputs, trainDataset, *covarDir, *pad, exampleOpts, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
+		return trainMap(trainInputs, trainDataset, *covarDir, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
 	}
 
 	testMapFunc := func(testInputs []TestInput, testDataset DatasetMessage) (map[string]float64, error) {
-		return testMap(testInputs, testDataset, *pad, searchOpts, *minMatch, *minIgnore, fppis)
+		return testMap(testInputs, testDataset, searchOpts, *minMatch, *minIgnore, fppis)
 	}
 
 	for _, expmName := range expmNames {
@@ -249,7 +236,7 @@ func runExperiment(expm Experiment, sets map[string]SubsetImages, datasets map[s
 	return testMapFunc(testInputs, testDataset)
 }
 
-func trainMap(inputs []TrainInput, dataset DatasetMessage, covarDir string, pad int, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts MultiScaleOptsMessage) error {
+func trainMap(inputs []TrainInput, dataset DatasetMessage, covarDir string, flip bool, interp resize.InterpolationFunction, searchOpts MultiScaleOptsMessage) error {
 	var subset []TrainInput
 	for _, p := range inputs {
 		if _, err := os.Stat(p.TmplFile()); os.IsNotExist(err) {
@@ -264,14 +251,14 @@ func trainMap(inputs []TrainInput, dataset DatasetMessage, covarDir string, pad 
 	}
 	log.Printf("number of detectors to train: %d / %d", len(subset), len(inputs))
 	// Discard output since result is saved to file.
-	err := dstrfn.MapFunc("train", new([]string), subset, dataset, covarDir, pad, exampleOpts, flip, interp, searchOpts)
+	err := dstrfn.MapFunc("train", new([]string), subset, dataset, covarDir, flip, interp, searchOpts)
 	if err != nil {
 		log.Fatalln("map(train):", err)
 	}
 	return nil
 }
 
-func testMap(inputs []TestInput, dataset DatasetMessage, pad int, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]float64, error) {
+func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]float64, error) {
 	perfs := make(map[string]float64)
 	// Identify which params have not been tested yet.
 	var subset []TestInput
@@ -288,7 +275,7 @@ func testMap(inputs []TestInput, dataset DatasetMessage, pad int, searchOpts Mul
 		if err := fileutil.LoadExt(fname, &perf); err != nil {
 			log.Fatalf(`load cache file "%s": %v`, fname, err)
 		}
-		perfs[x.Key()] = perf
+		perfs[x.Ident()] = perf
 	}
 
 	if len(subset) == 0 {
@@ -296,12 +283,12 @@ func testMap(inputs []TestInput, dataset DatasetMessage, pad int, searchOpts Mul
 		return perfs, nil
 	}
 	var out []float64
-	err := dstrfn.MapFunc("test", &out, subset, dataset, pad, searchOpts, minMatchIOU, minIgnoreCover, fppis)
+	err := dstrfn.MapFunc("test", &out, subset, dataset, searchOpts, minMatchIOU, minIgnoreCover, fppis)
 	if err != nil {
 		log.Fatalln("map(test):", err)
 	}
 	for i, x := range subset {
-		perfs[x.Key()] = out[i]
+		perfs[x.Ident()] = out[i]
 	}
 	return perfs, nil
 }
@@ -326,7 +313,7 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 		for _, subsets := range expm.SubsetPairs {
 			trainSetName := Set{Dataset: expm.TrainDataset, Subset: subsets.Train}
 			testSetName := Set{Dataset: expm.TestDataset, Subset: subsets.Test}
-			fmt.Fprintf(buf, "\t%s-%s", trainSetName.Key(), testSetName.Key())
+			fmt.Fprintf(buf, "\t%s-%s", trainSetName.Ident(), testSetName.Ident())
 		}
 		if len(expm.SubsetPairs) > 1 {
 			fmt.Fprint(buf, "\tMean")
@@ -336,9 +323,9 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 	fmt.Fprintln(buf)
 
 	for _, p := range params {
-		fmt.Fprint(buf, p.Key())
+		fmt.Fprint(buf, p.Ident())
 		for _, name := range fields {
-			fmt.Fprintf(buf, "\t%s", p.Field(name))
+			fmt.Fprintf(buf, "\t%s", strconv.Quote(p.Field(name)))
 		}
 		for _, expmName := range expmNames {
 			expm := expms[expmName]
@@ -351,7 +338,7 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 					},
 					TestSet: Set{Dataset: expm.TestDataset, Subset: subsets.Test},
 				}
-				perf := expmPerfs[expmName][resultParam.Key()]
+				perf := expmPerfs[expmName][resultParam.Ident()]
 				mean += perf
 				stddev += perf * perf
 				fmt.Fprintf(buf, "\t%g", perf)

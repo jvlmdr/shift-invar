@@ -5,22 +5,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"strconv"
+	"reflect"
 	"strings"
 
 	"github.com/jvlmdr/go-cv/featset"
 )
 
+// Param specifies options for training and testing a detector.
 type Param struct {
 	Trainer TrainerMessage
 	NegFrac float64
 	Overlap OverlapMessage
 	Size    image.Point
 	Feat    Feature
+
+	TrainPad      int
+	AspectReject  float64
+	ResizeFor     string
+	MaxTrainScale float64
+	PyrStep       float64
+	MaxTestScale  float64
+	TestMargin    int
 }
 
-// ID is a human-readable filename-friendly string.
-func (p Param) ID() string {
+// Serialize is a representation of Param as a string.
+func (p Param) Serialize() string {
 	// Use JSON string instead of fmt.Sprintf("%+v") since pointers
 	// will not traversed and their addresses will be displayed.
 	repr, err := json.Marshal(p)
@@ -30,9 +39,9 @@ func (p Param) ID() string {
 	return string(repr)
 }
 
-// Key is a short unique string.
-func (p Param) Key() string {
-	return fmt.Sprintf("%x", sha1.Sum([]byte(p.ID())))[:8]
+// Ident is a short unique string.
+func (p Param) Ident() string {
+	return fmt.Sprintf("%x", sha1.Sum([]byte(p.Serialize())))[:8]
 }
 
 // Field returns the value of the field with the given name.
@@ -47,21 +56,20 @@ func (p Param) Field(name string) string {
 		return p.Trainer.Spec.Field(name)
 	}
 	switch name {
-	case "NegFrac":
-		return fmt.Sprint(p.NegFrac)
 	case "Overlap":
-		return strconv.Quote(p.Overlap.Spec.Name())
-	case "Size":
-		return strconv.Quote(p.Size.String())
+		return p.Overlap.Spec.Name()
 	case "Feat":
 		repr, err := json.Marshal(p.Feat)
 		if err != nil {
 			panic(fmt.Sprintf("encode feature: %v", err))
 		}
-		return strconv.Quote(string(repr))
-	default:
+		return string(repr)
+	}
+	fieldValue := reflect.ValueOf(p).FieldByName(name)
+	if !fieldValue.IsValid() {
 		return ""
 	}
+	return fmt.Sprint(fieldValue.Interface())
 }
 
 // Feature is a feature function with pre-computed statistics.

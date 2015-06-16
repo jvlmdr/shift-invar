@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	dstrfn.RegisterMap("train", false, dstrfn.ConfigFunc(train))
+	dstrfn.RegisterMap("train", true, dstrfn.ConfigFunc(train))
 }
 
 type TrainInput struct {
@@ -23,8 +23,14 @@ type TrainInput struct {
 	Images []string
 }
 
-func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, examplePad int, exampleOpts data.ExampleOpts, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
-	fmt.Printf("%s\t%s\n", u.Param.Key(), u.Param.ID())
+func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, addFlip bool, interp resize.InterpolationFunction, searchOptsMsg MultiScaleOptsMessage) (string, error) {
+	fmt.Printf("%s\t%s\n", u.Param.Ident(), u.Param.Serialize())
+	examplePad := u.Param.TrainPad
+	exampleOpts := data.ExampleOpts{
+		AspectReject: u.Param.AspectReject,
+		FitMode:      u.Param.ResizeFor,
+		MaxScale:     u.Param.MaxTrainScale,
+	}
 	// Determine dimensions of template.
 	region := detect.PadRect{
 		Size: image.Pt(u.Size.X+examplePad*2, u.Size.Y+examplePad*2),
@@ -32,7 +38,8 @@ func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, example
 	}
 	phi := u.Feat.Transform.Transform()
 	// Supply training algorithm with search options.
-	searchOpts := searchOptsMsg.Content(phi, imsamp.Continue, u.Overlap.Spec.Eval)
+	// TODO: phi will be decoded twice. Is this an issue?
+	searchOpts := searchOptsMsg.Content(u.Param, imsamp.Continue, u.Overlap.Spec.Eval)
 
 	// Re-load dataset on execution host.
 	dataset, err := data.Load(datasetMessage.Name, datasetMessage.Spec)

@@ -18,32 +18,31 @@ import (
 )
 
 func init() {
-	dstrfn.RegisterMap("test", false, dstrfn.ConfigFunc(test))
+	dstrfn.RegisterMap("test", true, dstrfn.ConfigFunc(test))
 }
 
 // Remove feat.Pad since feat.Pad.Extend cannot be marshaled.
 type MultiScaleOptsMessage struct {
-	MaxScale float64
-	PyrStep  float64
-	Interp   resize.InterpolationFunction
-	// Replace Pad with PadMargin due to functional member.
-	PadMargin feat.Margin
+	Interp resize.InterpolationFunction
 	// MinScore will be ignored and set to -inf.
 	detect.DetFilter
 	// Replace SupprFilter with SupprMaxNum due to functional member.
 	SupprMaxNum int
 }
 
-func (msg MultiScaleOptsMessage) Content(phi feat.Image, padExtend imsamp.At, overlap detect.OverlapFunc) detect.MultiScaleOpts {
+// Content combines MultiScaleOptsMessage, Param, and other parameters into MultiScaleOpts.
+// TODO: Is it ugly for Transform() to be called internally?
+func (msg MultiScaleOptsMessage) Content(param Param, padExtend imsamp.At, overlap detect.OverlapFunc) detect.MultiScaleOpts {
 	// Override DetFilter.MinScore.
 	detFilter := msg.DetFilter
 	detFilter.MinScore = math.Inf(-1)
+	margin := param.TrainPad + param.TestMargin
 	return detect.MultiScaleOpts{
-		MaxScale:    msg.MaxScale,
-		PyrStep:     msg.PyrStep,
+		MaxScale:    param.MaxTestScale,
+		PyrStep:     param.PyrStep,
 		Interp:      msg.Interp,
-		Transform:   phi,
-		Pad:         feat.Pad{msg.PadMargin, padExtend},
+		Transform:   param.Feat.Transform.Transform(),
+		Pad:         feat.Pad{feat.UniformMargin(margin), padExtend},
 		DetFilter:   detFilter,
 		SupprFilter: detect.SupprFilter{msg.SupprMaxNum, overlap},
 	}
@@ -54,9 +53,9 @@ type TestInput struct {
 	Images []string
 }
 
-func test(x TestInput, datasetMessage DatasetMessage, pad int, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
-	fmt.Printf("%s\t%s\n", x.Param.Key(), x.Param.ID())
-	opts := optsMsg.Content(x.Param.Feat.Transform.Transform(), imsamp.Continue, x.Param.Overlap.Spec.Eval)
+func test(x TestInput, datasetMessage DatasetMessage, optsMsg MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (float64, error) {
+	fmt.Printf("%s\t%s\n", x.Param.Ident(), x.Param.Serialize())
+	opts := optsMsg.Content(x.Param, imsamp.Continue, x.Param.Overlap.Spec.Eval)
 	// Load template from disk.
 	tmpl := new(detect.FeatTmpl)
 	if err := fileutil.LoadExt(x.TmplFile(), tmpl); err != nil {
@@ -78,7 +77,7 @@ func test(x TestInput, datasetMessage DatasetMessage, pad int, optsMsg MultiScal
 
 	// Cache validated detections.
 	var imvals []*detect.ValSet
-	err = fileutil.Cache(&imvals, fmt.Sprintf("val-dets-%s.json", x.Key()), func() ([]*detect.ValSet, error) {
+	err = fileutil.Cache(&imvals, fmt.Sprintf("val-dets-%s.json", x.Ident()), func() ([]*detect.ValSet, error) {
 		imdets := make(map[string][]detect.Det)
 		var imvals []*detect.ValSet // Shadow variable in parent scope.
 		for i, name := range ims {
@@ -106,7 +105,7 @@ func test(x TestInput, datasetMessage DatasetMessage, pad int, optsMsg MultiScal
 			)
 		}
 		// Also save (un-validated) detections.
-		err = fileutil.SaveExt(fmt.Sprintf("dets-%s.json", x.Key()), imdets)
+		err = fileutil.SaveExt(fmt.Sprintf("dets-%s.json", x.Ident()), imdets)
 		if err != nil {
 			return nil, err
 		}
