@@ -7,6 +7,7 @@ import (
 	"path"
 
 	"github.com/jvlmdr/go-cv/detect"
+	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/imsamp"
 	"github.com/jvlmdr/go-file/fileutil"
 	"github.com/jvlmdr/go-pbs-pro/dstrfn"
@@ -32,11 +33,10 @@ func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, addFlip
 		MaxScale:     u.Param.MaxTrainScale,
 	}
 	// Determine dimensions of template.
-	region := detect.PadRect{
-		Size: image.Pt(u.Size.X+examplePad*2, u.Size.Y+examplePad*2),
-		Int:  image.Rectangle{image.ZP, u.Size}.Add(image.Pt(examplePad, examplePad)),
-	}
 	phi := u.Feat.Transform.Transform()
+	maxSize := u.Size.Add(image.Pt(2*examplePad, 2*examplePad))
+	region := windowGeom(u.Size, maxSize, phi)
+	log.Printf("window size %v, object bounds %v", region.Size, region.Int)
 	// Supply training algorithm with search options.
 	// TODO: phi will be decoded twice. Is this an issue?
 	searchOpts := searchOptsMsg.Content(u.Param, imsamp.Continue, u.Overlap.Spec.Eval)
@@ -69,4 +69,10 @@ func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, addFlip
 		return "", err
 	}
 	return u.TmplFile(), nil
+}
+
+func windowGeom(obj, max image.Point, phi feat.Image) detect.PadRect {
+	min := phi.MinInputSize(phi.Size(max))
+	rect := image.Rectangle{Max: obj}.Add(min.Sub(obj).Div(2))
+	return detect.PadRect{min, rect}
 }
