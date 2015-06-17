@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
@@ -17,6 +18,9 @@ import (
 type ToeplitzTrainer struct {
 	Lambda float64
 	Circ   bool
+	// Bandwidth parameter of Gaussian mask.
+	// Non-positive means no mask.
+	Sigma float64
 }
 
 func (t *ToeplitzTrainer) Field(name string) string {
@@ -25,6 +29,8 @@ func (t *ToeplitzTrainer) Field(name string) string {
 		return fmt.Sprint(t.Lambda)
 	case "Circ":
 		return fmt.Sprint(t.Circ)
+	case "Sigma":
+		return fmt.Sprint(t.Sigma)
 	default:
 		return ""
 	}
@@ -34,18 +40,21 @@ func (t *ToeplitzTrainer) Field(name string) string {
 type ToeplitzTrainerSet struct {
 	Lambda []float64
 	Circ   []bool
+	Sigma  []float64
 }
 
 func (set *ToeplitzTrainerSet) Fields() []string {
-	return []string{"Lambda", "Circ"}
+	return []string{"Lambda", "Circ", "Sigma"}
 }
 
 func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
 	var ts []Trainer
 	for _, lambda := range set.Lambda {
 		for _, circ := range set.Circ {
-			t := &ToeplitzTrainer{Lambda: lambda, Circ: circ}
-			ts = append(ts, t)
+			for _, sigma := range set.Sigma {
+				t := &ToeplitzTrainer{Lambda: lambda, Circ: circ, Sigma: sigma}
+				ts = append(ts, t)
+			}
 		}
 	}
 	return ts
@@ -80,6 +89,20 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 	}
 	// Obtain covariance and mean from sums.
 	distr := toepcov.Normalize(total, true)
+	bandwidth := distr.Covar.Bandwidth
+	if t.Sigma > 0 {
+		for u := -bandwidth; u <= bandwidth; u++ {
+			for v := -bandwidth; v <= bandwidth; v++ {
+				x, y := float64(u), float64(v)
+				alpha := math.Exp(-(x*x + y*y) / (2 * t.Sigma * t.Sigma))
+				for p := 0; p < channels; p++ {
+					for q := 0; q < channels; q++ {
+						distr.Covar.Set(u, v, p, q, alpha*distr.Covar.At(u, v, p, q))
+					}
+				}
+			}
+		}
+	}
 	// Regularize.
 	distr.Covar.AddLambdaI(t.Lambda)
 	// Subtract negative mean from positive example.
