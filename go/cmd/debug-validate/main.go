@@ -21,8 +21,8 @@ func init() {
 
 func main() {
 	var (
-		datasetName  = flag.String("dataset", "", "{inria, caltech}")
-		datasetSpec  = flag.String("dataset-spec", "", "Dataset parameters (JSON)")
+		datasetName = flag.String("dataset", "", "{inria, caltech}")
+		datasetSpec = flag.String("dataset-spec", "", "Dataset parameters (JSON)")
 	)
 	flag.Parse()
 	if flag.NArg() != 1 {
