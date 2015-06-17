@@ -138,6 +138,20 @@ type CaltechPreset struct {
 	Name string
 }
 
+var caltechUSASets = []CaltechSet{
+	{Index: 0, Videos: interval(0, 15)},
+	{Index: 1, Videos: interval(0, 6)},
+	{Index: 2, Videos: interval(0, 12)},
+	{Index: 3, Videos: interval(0, 13)},
+	{Index: 4, Videos: interval(0, 12)},
+	{Index: 5, Videos: interval(0, 13)},
+	{Index: 6, Videos: interval(0, 19)},
+	{Index: 7, Videos: interval(0, 12)},
+	{Index: 8, Videos: interval(0, 11)},
+	{Index: 9, Videos: interval(0, 12)},
+	{Index: 10, Videos: interval(0, 12)},
+}
+
 // Matches definitions in dbInfo.m of Piotr's toolbox.
 func (p CaltechPreset) Spec() CaltechSpec {
 	switch p.Name {
@@ -147,19 +161,7 @@ func (p CaltechPreset) Spec() CaltechSpec {
 			Subdir: "USA",
 			Skip:   30,
 			Ext:    "jpg",
-			Sets: []CaltechSet{
-				{Index: 0, Videos: interval(0, 15)},
-				{Index: 1, Videos: interval(0, 6)},
-				{Index: 2, Videos: interval(0, 12)},
-				{Index: 3, Videos: interval(0, 13)},
-				{Index: 4, Videos: interval(0, 12)},
-				{Index: 5, Videos: interval(0, 13)},
-				{Index: 6, Videos: interval(0, 19)},
-				{Index: 7, Videos: interval(0, 12)},
-				{Index: 8, Videos: interval(0, 11)},
-				{Index: 9, Videos: interval(0, 12)},
-				{Index: 10, Videos: interval(0, 12)},
-			},
+			Sets:   caltechUSASets,
 		}
 	case "usatrain":
 		return CaltechSpec{
@@ -167,14 +169,7 @@ func (p CaltechPreset) Spec() CaltechSpec {
 			Subdir: "USA",
 			Skip:   30,
 			Ext:    "jpg",
-			Sets: []CaltechSet{
-				{Index: 0, Videos: interval(0, 15)},
-				{Index: 1, Videos: interval(0, 6)},
-				{Index: 2, Videos: interval(0, 12)},
-				{Index: 3, Videos: interval(0, 13)},
-				{Index: 4, Videos: interval(0, 12)},
-				{Index: 5, Videos: interval(0, 13)},
-			},
+			Sets:   caltechUSASets[0:6],
 		}
 	case "usatest":
 		return CaltechSpec{
@@ -182,13 +177,7 @@ func (p CaltechPreset) Spec() CaltechSpec {
 			Subdir: "USA",
 			Skip:   30,
 			Ext:    "jpg",
-			Sets: []CaltechSet{
-				{Index: 6, Videos: interval(0, 19)},
-				{Index: 7, Videos: interval(0, 12)},
-				{Index: 8, Videos: interval(0, 11)},
-				{Index: 9, Videos: interval(0, 12)},
-				{Index: 10, Videos: interval(0, 12)},
-			},
+			Sets:   caltechUSASets[6:11],
 		}
 	case "inriatrain":
 		return CaltechSpec{
