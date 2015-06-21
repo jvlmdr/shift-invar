@@ -345,7 +345,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		}
 
 		weights, err := svm.Train(vecset.NewUnion(x), y, c,
-			func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[int]float64) (bool, error) {
+			func(epoch int, f, g float64, w []float64, a map[int]float64) (bool, error) {
 				if epoch < t.Epochs {
 					return false, nil
 				}

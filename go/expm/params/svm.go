@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"reflect"
+	"strings"
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
@@ -19,20 +21,18 @@ type SVMTrainer struct {
 	Bias   float64
 	Lambda float64
 	Gamma  float64
-	Epochs int
+	Term   SVMTerm
 }
 
 func (t *SVMTrainer) Field(name string) string {
-	switch name {
-	case "Lambda":
-		return fmt.Sprint(t.Lambda)
-	case "Gamma":
-		return fmt.Sprint(t.Gamma)
-	case "Epochs":
-		return fmt.Sprint(t.Epochs)
-	default:
+	if strings.HasPrefix(name, "Term.") {
+		return t.Term.Field(strings.TrimPrefix(name, "Term."))
+	}
+	value := reflect.ValueOf(t).Elem().FieldByName(name)
+	if !value.IsValid() {
 		return ""
 	}
+	return fmt.Sprint(value.Interface())
 }
 
 // SVMTrainerSet provides a mechanism to specify a set of SVMTrainers.
@@ -40,29 +40,86 @@ type SVMTrainerSet struct {
 	Bias   float64
 	Lambda []float64
 	Gamma  []float64
-	Epochs []int
+	Term   []SVMTermSet
 }
 
 func (set *SVMTrainerSet) Fields() []string {
-	return []string{"Lambda", "Gamma", "Epochs"}
+	return []string{"Lambda", "Gamma", "Term.Epochs", "Term.RelGap", "Term.AbsGap"}
 }
 
 func (set *SVMTrainerSet) Enumerate() []Trainer {
+	var terms []SVMTerm
+	for _, term := range set.Term {
+		terms = append(terms, term.Enumerate()...)
+	}
+
 	var ts []Trainer
 	for _, lambda := range set.Lambda {
 		for _, gamma := range set.Gamma {
-			for _, epochs := range set.Epochs {
+			for _, term := range terms {
 				t := &SVMTrainer{
 					Bias:   set.Bias,
 					Lambda: lambda,
 					Gamma:  gamma,
-					Epochs: epochs,
+					Term:   term,
 				}
 				ts = append(ts, t)
 			}
 		}
 	}
 	return ts
+}
+
+type SVMTerm struct {
+	Epochs int // Zero or less means no limit.
+	RelGap float64
+	AbsGap float64
+}
+
+func (term SVMTerm) Field(name string) string {
+	value := reflect.ValueOf(term).FieldByName(name)
+	if !value.IsValid() {
+		return ""
+	}
+	return fmt.Sprint(value.Interface())
+}
+
+func (term SVMTerm) Terminate(epoch int, f, g float64, w []float64, a map[int]float64) (bool, error) {
+	log.Printf("bounds: [%.6g, %.6g]", g, f)
+	gap := f - g
+	// gap and f are positive.
+	if relGap := gap / f; relGap <= term.RelGap {
+		log.Printf("relative gap %.3g <= %.3g", relGap, term.RelGap)
+		return true, nil
+	}
+	if gap <= term.AbsGap {
+		log.Printf("absolute gap %.3g <= %.3g", gap, term.AbsGap)
+		return true, nil
+	}
+	// epoch is the number of completed epochs.
+	if term.Epochs > 0 && epoch >= term.Epochs {
+		log.Printf("reach iteration limit")
+		return true, nil
+	}
+	return false, nil
+}
+
+type SVMTermSet struct {
+	Epochs []int
+	RelGap []float64
+	AbsGap []float64
+}
+
+func (set *SVMTermSet) Enumerate() []SVMTerm {
+	var x []SVMTerm
+	for _, epochs := range set.Epochs {
+		for _, relGap := range set.RelGap {
+			for _, absGap := range set.AbsGap {
+				x = append(x, SVMTerm{Epochs: epochs, RelGap: relGap, AbsGap: absGap})
+			}
+		}
+	}
+	return x
 }
 
 func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
@@ -114,15 +171,7 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 		}
 	}
 
-	termfunc := func(epoch int, f, fPrev, g, gPrev float64, w, wPrev []float64, a, aPrev map[int]float64) (bool, error) {
-		log.Printf("bounds: [%.6g, %.6g]", g, f)
-		if epoch < t.Epochs {
-			return false, nil
-		}
-		return true, nil
-	}
-
-	weights, err := svm.Train(vecset.NewUnion(x), y, c, termfunc)
+	weights, err := svm.Train(vecset.NewUnion(x), y, c, t.Term.Terminate)
 	if err != nil {
 		return nil, err
 	}
