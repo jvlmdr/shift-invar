@@ -34,6 +34,9 @@ type HardNegTrainer struct {
 type NegBehavior struct {
 	Init   InitNegBehavior
 	Rounds int
+	// Specifies how to normalize hard negatives: by "images", or "examples".
+	// Only has an effect if Rounds >= 1.
+	Normalize string
 	// Accum only has an effect if:
 	//   IsolateInit is true and Rounds >= 2
 	//   IsolateInit is false and Rounds >= 1 (replace initial negs)
@@ -58,6 +61,8 @@ func (t *HardNegTrainer) Field(name string) string {
 		return fmt.Sprint(t.NegBehav.Init.Cost)
 	case "Rounds":
 		return fmt.Sprint(t.NegBehav.Rounds)
+	case "NormalizeNeg":
+		return fmt.Sprint(t.NegBehav.Normalize)
 	case "Accum":
 		return fmt.Sprint(t.NegBehav.Accum)
 	case "InitNeg":
@@ -79,13 +84,14 @@ type HardNegTrainerSet struct {
 	Lambda []float64
 	Bias   float64
 	// Hard negative options.
-	IsolateInit []bool    // Normalize and penalize initial negs separate to hard negs?
-	InitNegCost []float64 // If IsolateInit, cost fraction of initial negs vs hard (0 to 1).
-	Rounds      []int
-	Accum       []bool // Accumulate negatives?
-	InitNeg     []int  // Initial number of random negatives.
-	PerRound    []int  // Maximum number to add in each round.
-	RequirePos  []bool // Check that score is positive.
+	IsolateInit  []bool    // Normalize and penalize initial negs separate to hard negs?
+	InitNegCost  []float64 // If IsolateInit, cost fraction of initial negs vs hard (0 to 1).
+	Rounds       []int
+	NormalizeNeg []string // How to normalize hard negatives.
+	Accum        []bool   // Accumulate negatives?
+	InitNeg      []int    // Initial number of random negatives.
+	PerRound     []int    // Maximum number to add in each round.
+	RequirePos   []bool   // Check that score is positive.
 	// SVM options.
 	Epochs []int
 }
@@ -93,7 +99,7 @@ type HardNegTrainerSet struct {
 func (set *HardNegTrainerSet) Fields() []string {
 	return []string{
 		"Gamma", "Lambda",
-		"IsolateInit", "InitNegCost", "Rounds", "Accum",
+		"IsolateInit", "InitNegCost", "Rounds", "NormalizeNeg", "Accum",
 		"InitNeg", "PerRound", "RequirePos",
 		"Epochs",
 	}
@@ -117,18 +123,20 @@ func (set *HardNegTrainerSet) Enumerate() []Trainer {
 		for _, num := range set.Rounds {
 			if num < 1 {
 				// No rounds of mining.
-				// Accum will have no effect.
+				// Normalize and Accum will have no effect.
 				behavs = append(behavs, NegBehavior{Init: init, Rounds: num})
 				continue
 			}
-			if num == 1 && init.Isolate {
-				// One round with initial negatives segregated.
-				// Accum will have no effect.
-				behavs = append(behavs, NegBehavior{Init: init, Rounds: num})
-				continue
-			}
-			for _, accum := range set.Accum {
-				behavs = append(behavs, NegBehavior{Init: init, Rounds: num, Accum: accum})
+			for _, normalize := range set.NormalizeNeg {
+				if num == 1 && init.Isolate {
+					// One round with initial negatives segregated.
+					// Accum will have no effect.
+					behavs = append(behavs, NegBehavior{Init: init, Rounds: num, Normalize: normalize})
+					continue
+				}
+				for _, accum := range set.Accum {
+					behavs = append(behavs, NegBehavior{Init: init, Rounds: num, Normalize: normalize, Accum: accum})
+				}
 			}
 		}
 	}
@@ -314,12 +322,21 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		}
 		// Add other negatives.
 		if len(hardNeg) > 0 {
-			var hardNegCost float64
-			if t.NegBehav.Init.Isolate {
-				hardNegCost = (1 - t.Gamma) * (1 - t.NegBehav.Init.Cost) / t.Lambda / float64(len(hardNeg))
-			} else {
-				hardNegCost = (1 - t.Gamma) / t.Lambda / float64(len(hardNeg))
+			hardNegCost := (1 - t.Gamma) / t.Lambda
+			switch t.NegBehav.Normalize {
+			case "images":
+				hardNegCost /= float64(len(negIms))
+				if t.NegBehav.Accum {
+					// Divide by number of images and number of rounds.
+					hardNegCost /= float64(round)
+				}
+			case "examples":
+				hardNegCost /= float64(len(hardNeg))
 			}
+			if t.NegBehav.Init.Isolate {
+				hardNegCost *= (1 - t.NegBehav.Init.Cost)
+			}
+
 			x = append(x, &imset.VecSet{Set: imset.Slice(hardNeg), Bias: t.Bias})
 			for _ = range hardNeg {
 				y = append(y, -1)
