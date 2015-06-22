@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"reflect"
 
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
@@ -21,19 +22,17 @@ type ToeplitzTrainer struct {
 	// Bandwidth parameter of Gaussian mask.
 	// Non-positive means no mask.
 	Sigma float64
+	// Maximum bandwidth of Toeplitz matrix (-2*Band+1, ..., 2*Band-1).
+	// Zero means full bandwidth.
+	Band int
 }
 
 func (t *ToeplitzTrainer) Field(name string) string {
-	switch name {
-	case "Lambda":
-		return fmt.Sprint(t.Lambda)
-	case "Circ":
-		return fmt.Sprint(t.Circ)
-	case "Sigma":
-		return fmt.Sprint(t.Sigma)
-	default:
+	value := reflect.ValueOf(t).Elem().FieldByName(name)
+	if !value.IsValid() {
 		return ""
 	}
+	return fmt.Sprint(value.Interface())
 }
 
 // ToeplitzTrainerSet provides a mechanism to specify a set of ToeplitzTrainers.
@@ -41,10 +40,11 @@ type ToeplitzTrainerSet struct {
 	Lambda []float64
 	Circ   []bool
 	Sigma  []float64
+	Band   []int
 }
 
 func (set *ToeplitzTrainerSet) Fields() []string {
-	return []string{"Lambda", "Circ", "Sigma"}
+	return []string{"Lambda", "Circ", "Sigma", "Band"}
 }
 
 func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
@@ -52,8 +52,10 @@ func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
 	for _, lambda := range set.Lambda {
 		for _, circ := range set.Circ {
 			for _, sigma := range set.Sigma {
-				t := &ToeplitzTrainer{Lambda: lambda, Circ: circ, Sigma: sigma}
-				ts = append(ts, t)
+				for _, band := range set.Band {
+					t := &ToeplitzTrainer{Lambda: lambda, Circ: circ, Sigma: sigma, Band: band}
+					ts = append(ts, t)
+				}
 			}
 		}
 	}
@@ -89,6 +91,9 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 	}
 	// Obtain covariance and mean from sums.
 	distr := toepcov.Normalize(total, true)
+	if t.Band > 0 && t.Band < distr.Covar.Bandwidth {
+		distr.Covar = distr.Covar.CloneBandwidth(t.Band)
+	}
 	bandwidth := distr.Covar.Bandwidth
 	if t.Sigma > 0 {
 		for u := -bandwidth; u <= bandwidth; u++ {
