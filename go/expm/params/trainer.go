@@ -12,8 +12,13 @@ import (
 // Trainer takes a training set which was extracted
 // using some configuration for training examples.
 type Trainer interface {
-	Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error)
+	Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error)
 	Field(string) string
+}
+
+type TrainResult struct {
+	Tmpl  *detect.FeatTmpl
+	Error string
 }
 
 // TrainerSet describes a set of Trainers of the same type.

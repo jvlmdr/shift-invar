@@ -83,7 +83,7 @@ func (term SetSVMTerm) Field(name string) string {
 	return fmt.Sprint(value.Interface())
 }
 
-func (term SetSVMTerm) Terminate(epoch int, f, g float64, w []float64, a map[setsvm.Index]float64) (bool, error) {
+func (term SetSVMTerm) Terminate(epoch int, f, g float64, w []float64, a setsvm.Dual) (bool, error) {
 	log.Printf("bounds: [%.6g, %.6g]", g, f)
 	gap := f - g
 	// gap and f are positive.
@@ -121,7 +121,7 @@ func (set *SetSVMTermList) Enumerate() []SetSVMTerm {
 	return x
 }
 
-func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
+func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -182,5 +182,5 @@ func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, ph
 		},
 		PixelShape: region,
 	}
-	return tmpl, nil
+	return &TrainResult{Tmpl: tmpl}, nil
 }

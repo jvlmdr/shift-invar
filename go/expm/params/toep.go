@@ -62,7 +62,7 @@ func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
 	return ts
 }
 
-func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*detect.FeatTmpl, error) {
+func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -115,14 +115,11 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 	var weights *rimg64.Multi
 	if t.Circ {
 		weights, err = circcov.InvMul(distr.Covar, delta)
-		if err != nil {
-			return nil, err
-		}
 	} else {
 		weights, err = toepcov.InvMulDirect(distr.Covar, delta)
-		if err != nil {
-			return nil, err
-		}
+	}
+	if err != nil {
+		return &TrainResult{Error: err.Error()}, nil
 	}
 
 	// Pack weights into image in detection template.
@@ -130,5 +127,5 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 		Scorer:     &slide.AffineScorer{Tmpl: weights},
 		PixelShape: region,
 	}
-	return tmpl, nil
+	return &TrainResult{Tmpl: tmpl}, nil
 }

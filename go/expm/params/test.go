@@ -57,10 +57,15 @@ func test(x TestInput, datasetMessage DatasetMessage, optsMsg MultiScaleOptsMess
 	fmt.Printf("%s\t%s\n", x.Param.Ident(), x.Param.Serialize())
 	opts := optsMsg.Content(x.Param, imsamp.Continue, x.Param.Overlap.Spec.Eval)
 	// Load template from disk.
-	tmpl := new(detect.FeatTmpl)
-	if err := fileutil.LoadExt(x.TmplFile(), tmpl); err != nil {
+	trainResult := new(TrainResult)
+	if err := fileutil.LoadExt(x.TmplFile(), trainResult); err != nil {
 		return 0, err
 	}
+	if trainResult.Error != "" {
+		// This function should not have been called for this configuration.
+		return 0, fmt.Errorf("training error: %s", trainResult.Error)
+	}
+	tmpl := trainResult.Tmpl
 
 	// Re-load dataset on execution host.
 	dataset, err := data.Load(datasetMessage.Name, datasetMessage.Spec)

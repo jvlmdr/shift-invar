@@ -61,11 +61,11 @@ func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, addFlip
 	log.Println("number of negative images:", len(negIms))
 
 	statsFile := path.Join(covarDir, u.Feat.StatsFile)
-	tmpl, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, statsFile, region, exampleOpts, addFlip, interp, searchOpts)
+	result, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, statsFile, region, exampleOpts, addFlip, interp, searchOpts)
 	if err != nil {
 		return "", err
 	}
-	if err := fileutil.SaveExt(u.TmplFile(), tmpl); err != nil {
+	if err := fileutil.SaveExt(u.TmplFile(), result); err != nil {
 		return "", err
 	}
 	return u.TmplFile(), nil

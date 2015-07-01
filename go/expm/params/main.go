@@ -165,13 +165,13 @@ func main() {
 	if *doTestVar {
 		expmNames = append(expmNames, "test-var")
 	}
-	expmPerfs := make(map[string]map[string]float64)
+	expmResults := make(map[string]ExperimentResult)
 
 	trainMapFunc := func(trainInputs []TrainInput, trainDataset DatasetMessage) error {
 		return trainMap(trainInputs, trainDataset, *covarDir, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
 	}
 
-	testMapFunc := func(testInputs []TestInput, testDataset DatasetMessage) (map[string]float64, error) {
+	testMapFunc := func(testInputs []TestInput, testDataset DatasetMessage) (map[string]*TestResult, error) {
 		return testMap(testInputs, testDataset, searchOpts, *minMatch, *minIgnore, fppis)
 	}
 
@@ -181,21 +181,23 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		expmPerfs[expmName] = perfs
+		expmResults[expmName] = perfs
 	}
 
-	if err := printResults(paramset, params, expmNames, expms, expmPerfs); err != nil {
+	if err := printResults(paramset, params, expmNames, expms, expmResults); err != nil {
 		log.Fatal(err)
 	}
 }
+
+type ExperimentResult map[string]*TestResult
 
 type SubsetImages map[string][]string
 
 type TrainMapFunc func([]TrainInput, DatasetMessage) error
 
-type TestMapFunc func(testInputs []TestInput, testDataset DatasetMessage) (map[string]float64, error)
+type TestMapFunc func(testInputs []TestInput, testDataset DatasetMessage) (map[string]*TestResult, error)
 
-func runExperiment(expm Experiment, sets map[string]SubsetImages, datasets map[string]DatasetMessage, params []Param, trainMapFunc TrainMapFunc, testMapFunc TestMapFunc) (map[string]float64, error) {
+func runExperiment(expm Experiment, sets map[string]SubsetImages, datasets map[string]DatasetMessage, params []Param, trainMapFunc TrainMapFunc, testMapFunc TestMapFunc) (map[string]*TestResult, error) {
 	var err error
 	trainDataset := datasets[expm.TrainDataset]
 	trainInputs := make([]TrainInput, 0, len(expm.SubsetPairs)*len(params))
@@ -258,29 +260,49 @@ func trainMap(inputs []TrainInput, dataset DatasetMessage, covarDir string, flip
 	return nil
 }
 
-func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]float64, error) {
-	perfs := make(map[string]float64)
-	// Identify which params have not been tested yet.
+type TestResult struct {
+	Perf  float64
+	Error string
+}
+
+// testMap tests all detectors in a list.
+func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]*TestResult, error) {
+	// Identify configurations for which a training error occurred.
+	// Load cached results and identify un-tested subset.
+	results := make(map[string]*TestResult)
 	var subset []TestInput
 	for _, x := range inputs {
-		fname := x.PerfFile()
-		if _, err := os.Stat(fname); os.IsNotExist(err) {
+		tmplFile := x.TmplFile()
+		var trainResult TrainResult
+		if err := fileutil.LoadExt(tmplFile, &trainResult); err != nil {
+			return nil, err
+		}
+		if trainResult.Error != "" {
+			// Testing result inherits error from training result.
+			results[x.Ident()] = &TestResult{Error: trainResult.Error}
+			// Do not add to subset.
+			continue
+		}
+
+		perfFile := x.PerfFile()
+		if _, err := os.Stat(perfFile); os.IsNotExist(err) {
 			subset = append(subset, x)
 			continue
 		} else if err != nil {
-			log.Fatalf(`stat cache file "%s": %v`, fname, err)
+			return nil, fmt.Errorf(`stat cache file "%s": %v`, perfFile, err)
 		}
 		// Attempt to load file.
 		var perf float64
-		if err := fileutil.LoadExt(fname, &perf); err != nil {
-			log.Fatalf(`load cache file "%s": %v`, fname, err)
+		if err := fileutil.LoadExt(perfFile, &perf); err != nil {
+			return nil, fmt.Errorf(`load cache file "%s": %v`, perfFile, err)
 		}
-		perfs[x.Ident()] = perf
+		results[x.Ident()] = &TestResult{Perf: perf}
+		// Do not add to subset.
 	}
 
 	if len(subset) == 0 {
 		log.Println("all results have cache file")
-		return perfs, nil
+		return results, nil
 	}
 	var out []float64
 	err := dstrfn.MapFunc("test", &out, subset, dataset, searchOpts, minMatchIOU, minIgnoreCover, fppis)
@@ -288,12 +310,12 @@ func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOp
 		log.Fatalln("map(test):", err)
 	}
 	for i, x := range subset {
-		perfs[x.Ident()] = out[i]
+		results[x.Ident()] = &TestResult{Perf: out[i]}
 	}
-	return perfs, nil
+	return results, nil
 }
 
-func printResults(paramset *ParamSet, params []Param, expmNames []string, expms map[string]Experiment, expmPerfs map[string]map[string]float64) error {
+func printResults(paramset *ParamSet, params []Param, expmNames []string, expms map[string]Experiment, expmResults map[string]ExperimentResult) error {
 	// Dump all results to text file.
 	fields := paramset.Fields()
 	out, err := os.Create("perfs.txt")
@@ -330,6 +352,7 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 		for _, expmName := range expmNames {
 			expm := expms[expmName]
 			var mean, stddev float64
+			var fail bool
 			for _, subsets := range expm.SubsetPairs {
 				resultParam := ResultsKey{
 					DetectorKey: DetectorKey{
@@ -338,17 +361,27 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 					},
 					TestSet: Set{Dataset: expm.TestDataset, Subset: subsets.Test},
 				}
-				perf := expmPerfs[expmName][resultParam.Ident()]
-				mean += perf
-				stddev += perf * perf
-				fmt.Fprintf(buf, "\t%g", perf)
+				result := expmResults[expmName][resultParam.Ident()]
+				if result.Error != "" {
+					fail = true
+					fmt.Fprintf(buf, "\t%s", result.Error)
+				} else {
+					perf := result.Perf
+					mean += perf
+					stddev += perf * perf
+					fmt.Fprintf(buf, "\t%.6g", perf)
+				}
 			}
+
 			n := len(expm.SubsetPairs)
 			if n > 1 {
-				mean = mean / float64(n)
-				stddev = math.Sqrt(stddev/float64(n) - mean*mean)
-				fmt.Fprintf(buf, "\t%g", mean)
-				fmt.Fprintf(buf, "\t%g", stddev)
+				if fail {
+					fmt.Fprint(buf, "\t\t")
+				} else {
+					mean = mean / float64(n)
+					stddev = math.Sqrt(stddev/float64(n) - mean*mean)
+					fmt.Fprintf(buf, "\t%.6g\t%.6g", mean, stddev)
+				}
 			}
 		}
 		fmt.Fprintln(buf)
