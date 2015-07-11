@@ -5,6 +5,7 @@ import (
 	"image"
 	"log"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jvlmdr/go-cv/detect"
@@ -26,9 +27,10 @@ type HardNegTrainer struct {
 	NegBehav   NegBehavior
 	InitNeg    int  // Initial number of random negatives.
 	PerRound   int  // Maximum number to add in each round.
-	RequirePos bool // Check that score is positive.
+	RequirePos bool // Hard negatives must have at least MinScore.
+	MinScore   float64
 	// SVM options.
-	Epochs int
+	Term SVMTerm
 }
 
 type NegBehavior struct {
@@ -48,8 +50,16 @@ type InitNegBehavior struct {
 	Cost    float64 // If Isolate, cost fraction of initial negs vs hard (0 to 1).
 }
 
+type ScoreThreshold struct {
+	Enforce bool
+	Value   float64
+}
+
 // Field must match HardNegTrainerSet.Fields().
 func (t *HardNegTrainer) Field(name string) string {
+	if strings.HasPrefix(name, "Term.") {
+		return t.Term.Field(strings.TrimPrefix(name, "Term."))
+	}
 	switch name {
 	case "Gamma":
 		return fmt.Sprint(t.Gamma)
@@ -71,8 +81,8 @@ func (t *HardNegTrainer) Field(name string) string {
 		return fmt.Sprint(t.PerRound)
 	case "RequirePos":
 		return fmt.Sprint(t.RequirePos)
-	case "Epochs":
-		return fmt.Sprint(t.Epochs)
+	case "MinScore":
+		return fmt.Sprint(t.MinScore)
 	default:
 		return ""
 	}
@@ -92,16 +102,17 @@ type HardNegTrainerSet struct {
 	InitNeg      []int    // Initial number of random negatives.
 	PerRound     []int    // Maximum number to add in each round.
 	RequirePos   []bool   // Check that score is positive.
+	MinScore     []float64
 	// SVM options.
-	Epochs []int
+	Term []SVMTermSet
 }
 
 func (set *HardNegTrainerSet) Fields() []string {
 	return []string{
 		"Gamma", "Lambda",
 		"IsolateInit", "InitNegCost", "Rounds", "NormalizeNeg", "Accum",
-		"InitNeg", "PerRound", "RequirePos",
-		"Epochs",
+		"InitNeg", "PerRound", "RequirePos", "MinScore",
+		"Term.Epochs", "Term.RelGap", "Term.AbsGap",
 	}
 }
 
@@ -141,23 +152,40 @@ func (set *HardNegTrainerSet) Enumerate() []Trainer {
 		}
 	}
 
+	var thresholds []ScoreThreshold
+	for _, requirePos := range set.RequirePos {
+		if !requirePos {
+			thresholds = append(thresholds, ScoreThreshold{Enforce: false})
+			continue
+		}
+		for _, minScore := range set.MinScore {
+			thresholds = append(thresholds, ScoreThreshold{Enforce: true, Value: minScore})
+		}
+	}
+
+	var terms []SVMTerm
+	for _, term := range set.Term {
+		terms = append(terms, term.Enumerate()...)
+	}
+
 	var ts []Trainer
 	for _, gamma := range set.Gamma {
 		for _, lambda := range set.Lambda {
-			for _, epochs := range set.Epochs {
+			for _, term := range terms {
 				for _, behav := range behavs {
 					for _, initNeg := range set.InitNeg {
 						for _, perRound := range set.PerRound {
-							for _, requirePos := range set.RequirePos {
+							for _, thresh := range thresholds {
 								t := &HardNegTrainer{
 									Gamma:      gamma,
 									Lambda:     lambda,
 									Bias:       set.Bias,
-									Epochs:     epochs,
+									Term:       term,
 									NegBehav:   behav,
 									InitNeg:    initNeg,
 									PerRound:   perRound,
-									RequirePos: requirePos,
+									RequirePos: thresh.Enforce,
+									MinScore:   thresh.Value,
 								}
 								ts = append(ts, t)
 							}
@@ -184,7 +212,7 @@ func (xs byScore) Swap(i, j int)      { xs[i], xs[j] = xs[j], xs[i] }
 func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error) {
 	// Over-ride MinScore in searchOpts.
 	if t.RequirePos {
-		searchOpts.DetFilter.MinScore = 0
+		searchOpts.DetFilter.MinScore = t.MinScore
 	}
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
@@ -219,7 +247,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		hardNeg []*rimg64.Multi
 		tmpl    *detect.FeatTmpl
 	)
-	if t.NegBehav.Init.Isolate {
+	if !t.NegBehav.Init.Isolate {
 		hardNeg = initNeg
 	}
 
@@ -323,18 +351,23 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		// Add other negatives.
 		if len(hardNeg) > 0 {
 			hardNegCost := (1 - t.Gamma) / t.Lambda
-			switch t.NegBehav.Normalize {
-			case "images":
-				hardNegCost /= float64(len(negIms))
-				if t.NegBehav.Accum {
-					// Divide by number of images and number of rounds.
-					hardNegCost /= float64(round)
-				}
-			case "examples":
-				hardNegCost /= float64(len(hardNeg))
-			}
 			if t.NegBehav.Init.Isolate {
 				hardNegCost *= (1 - t.NegBehav.Init.Cost)
+			}
+			switch t.NegBehav.Normalize {
+			case "images":
+				mult := 1
+				if t.NegBehav.Accum {
+					// The number of this round, zero at first.
+					mult = round
+					// Count an extra round if the negatives are not isolated.
+					if !t.NegBehav.Init.Isolate {
+						mult += 1
+					}
+				}
+				hardNegCost /= float64(len(negIms)) * float64(mult)
+			case "examples":
+				hardNegCost /= float64(len(hardNeg))
 			}
 
 			x = append(x, &imset.VecSet{Set: imset.Slice(hardNeg), Bias: t.Bias})
@@ -344,14 +377,7 @@ func (t *HardNegTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 			}
 		}
 
-		weights, err := svm.Train(vecset.NewUnion(x), y, c,
-			func(epoch int, f, g float64, w []float64, a map[int]float64) (bool, error) {
-				if epoch < t.Epochs {
-					return false, nil
-				}
-				return true, nil
-			},
-		)
+		weights, err := svm.Train(vecset.NewUnion(x), y, c, t.Term.Terminate)
 		if err != nil {
 			return nil, err
 		}
