@@ -81,6 +81,7 @@ func test(x TestInput, datasetMessage DatasetMessage, optsMsg MultiScaleOptsMess
 	}
 
 	// Cache validated detections.
+	// Should have made this map[string]*ValImage for debug?
 	var imvals []*detect.ValSet
 	err = fileutil.Cache(&imvals, fmt.Sprintf("val-dets-%s.json", x.Ident()), func() ([]*detect.ValSet, error) {
 		imdets := make(map[string][]detect.Det)
