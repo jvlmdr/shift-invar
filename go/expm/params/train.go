@@ -5,6 +5,7 @@ import (
 	"image"
 	"log"
 	"path"
+	"time"
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
@@ -61,11 +62,14 @@ func train(u TrainInput, datasetMessage DatasetMessage, covarDir string, addFlip
 	log.Println("number of negative images:", len(negIms))
 
 	statsFile := path.Join(covarDir, u.Feat.StatsFile)
-	result, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, statsFile, region, exampleOpts, addFlip, interp, searchOpts)
+	start := time.Now()
+	solveResult, err := u.Trainer.Spec.Train(posIms, negIms, dataset, phi, statsFile, region, exampleOpts, addFlip, interp, searchOpts)
 	if err != nil {
 		return "", err
 	}
-	if err := fileutil.SaveExt(u.TmplFile(), result); err != nil {
+	dur := time.Since(start)
+	trainResult := NewTrainResult(solveResult, dur)
+	if err := fileutil.SaveExt(u.TmplFile(), trainResult); err != nil {
 		return "", err
 	}
 	return u.TmplFile(), nil

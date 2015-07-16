@@ -121,7 +121,7 @@ func (set *SetSVMTermList) Enumerate() []SetSVMTerm {
 	return x
 }
 
-func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error) {
+func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*SolveResult, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -182,5 +182,5 @@ func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, ph
 		},
 		PixelShape: region,
 	}
-	return &TrainResult{Tmpl: tmpl}, nil
+	return &SolveResult{Tmpl: tmpl}, nil
 }

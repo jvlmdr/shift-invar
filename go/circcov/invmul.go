@@ -19,6 +19,7 @@ func InvMul(g *toepcov.Covar, f *rimg64.Multi) (*rimg64.Multi, error) {
 // The manner in which the circulant matrix is constructed is determined
 // by the coefficients function.
 func InvMulMode(g *toepcov.Covar, f *rimg64.Multi, coeffs CoeffsFunc) (*rimg64.Multi, error) {
+	// TODO: Why is this a separate implementation to InvMuler? Less memory?
 	c := g.Channels
 	n := float64(f.Width * f.Height)
 

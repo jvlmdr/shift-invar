@@ -61,9 +61,9 @@ func test(x TestInput, datasetMessage DatasetMessage, optsMsg MultiScaleOptsMess
 	if err := fileutil.LoadExt(x.TmplFile(), trainResult); err != nil {
 		return 0, err
 	}
-	if trainResult.Error != "" {
+	if trainResult.Report.Error != "" {
 		// This function should not have been called for this configuration.
-		return 0, fmt.Errorf("training error: %s", trainResult.Error)
+		return 0, fmt.Errorf("training error: %s", trainResult.Report.Error)
 	}
 	tmpl := trainResult.Tmpl
 

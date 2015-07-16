@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"strconv"
 
@@ -171,7 +170,7 @@ func main() {
 		return trainMap(trainInputs, trainDataset, *covarDir, *flip, resize.InterpolationFunction(*trainInterp), searchOpts)
 	}
 
-	testMapFunc := func(testInputs []TestInput, testDataset DatasetMessage) (map[string]*TestResult, error) {
+	testMapFunc := func(testInputs []TestInput, testDataset DatasetMessage) (ExperimentResult, error) {
 		return testMap(testInputs, testDataset, searchOpts, *minMatch, *minIgnore, fppis)
 	}
 
@@ -189,15 +188,16 @@ func main() {
 	}
 }
 
+// ExperimentResult contains the results for one or more partitions.
 type ExperimentResult map[string]*TestResult
 
 type SubsetImages map[string][]string
 
 type TrainMapFunc func([]TrainInput, DatasetMessage) error
 
-type TestMapFunc func(testInputs []TestInput, testDataset DatasetMessage) (map[string]*TestResult, error)
+type TestMapFunc func(testInputs []TestInput, testDataset DatasetMessage) (ExperimentResult, error)
 
-func runExperiment(expm Experiment, sets map[string]SubsetImages, datasets map[string]DatasetMessage, params []Param, trainMapFunc TrainMapFunc, testMapFunc TestMapFunc) (map[string]*TestResult, error) {
+func runExperiment(expm Experiment, sets map[string]SubsetImages, datasets map[string]DatasetMessage, params []Param, trainMapFunc TrainMapFunc, testMapFunc TestMapFunc) (ExperimentResult, error) {
 	var err error
 	trainDataset := datasets[expm.TrainDataset]
 	trainInputs := make([]TrainInput, 0, len(expm.SubsetPairs)*len(params))
@@ -261,25 +261,28 @@ func trainMap(inputs []TrainInput, dataset DatasetMessage, covarDir string, flip
 }
 
 type TestResult struct {
-	Perf  float64
-	Error string
+	Perf        float64
+	TrainReport *TrainReport
 }
 
 // testMap tests all detectors in a list.
-func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (map[string]*TestResult, error) {
+func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOptsMessage, minMatchIOU, minIgnoreCover float64, fppis []float64) (ExperimentResult, error) {
 	// Identify configurations for which a training error occurred.
 	// Load cached results and identify un-tested subset.
 	results := make(map[string]*TestResult)
 	var subset []TestInput
+	// TODO: Not maintain this extra array?
+	// Needed to copy information to TestResult.
+	var subsetTrainReports []*TrainReport // For subset
 	for _, x := range inputs {
 		tmplFile := x.TmplFile()
 		var trainResult TrainResult
 		if err := fileutil.LoadExt(tmplFile, &trainResult); err != nil {
 			return nil, err
 		}
-		if trainResult.Error != "" {
+		if trainResult.Report.Error != "" {
 			// Testing result inherits error from training result.
-			results[x.Ident()] = &TestResult{Error: trainResult.Error}
+			results[x.Ident()] = &TestResult{TrainReport: trainResult.Report}
 			// Do not add to subset.
 			continue
 		}
@@ -287,6 +290,7 @@ func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOp
 		perfFile := x.PerfFile()
 		if _, err := os.Stat(perfFile); os.IsNotExist(err) {
 			subset = append(subset, x)
+			subsetTrainReports = append(subsetTrainReports, trainResult.Report)
 			continue
 		} else if err != nil {
 			return nil, fmt.Errorf(`stat cache file "%s": %v`, perfFile, err)
@@ -296,8 +300,7 @@ func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOp
 		if err := fileutil.LoadExt(perfFile, &perf); err != nil {
 			return nil, fmt.Errorf(`load cache file "%s": %v`, perfFile, err)
 		}
-		results[x.Ident()] = &TestResult{Perf: perf}
-		// Do not add to subset.
+		results[x.Ident()] = &TestResult{Perf: perf, TrainReport: trainResult.Report}
 	}
 
 	if len(subset) == 0 {
@@ -310,7 +313,7 @@ func testMap(inputs []TestInput, dataset DatasetMessage, searchOpts MultiScaleOp
 		log.Fatalln("map(test):", err)
 	}
 	for i, x := range subset {
-		results[x.Ident()] = &TestResult{Perf: out[i]}
+		results[x.Ident()] = &TestResult{Perf: out[i], TrainReport: subsetTrainReports[i]}
 	}
 	return results, nil
 }
@@ -326,20 +329,47 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 	buf := bufio.NewWriter(out)
 	defer buf.Flush()
 
-	fmt.Fprint(buf, "Key")
-	for _, name := range fields {
-		fmt.Fprintf(buf, "\t%s", name)
+	for _ = range fields {
+		fmt.Fprint(buf, "\t")
+	}
+	for _, expmName := range expmNames {
+		expm := expms[expmName]
+		for _ = range expm.SubsetPairs {
+			fmt.Fprintf(buf, "\t\t\t\t\t")
+		}
+		if len(expm.SubsetPairs) > 1 {
+			fmt.Fprintf(buf, "\tTotal\t\t\t\t\t\t\t")
+		}
+	}
+	fmt.Fprintln(buf)
+
+	for _ = range fields {
+		fmt.Fprint(buf, "\t")
 	}
 	for _, expmName := range expmNames {
 		expm := expms[expmName]
 		for _, subsets := range expm.SubsetPairs {
 			trainSetName := Set{Dataset: expm.TrainDataset, Subset: subsets.Train}
 			testSetName := Set{Dataset: expm.TestDataset, Subset: subsets.Test}
-			fmt.Fprintf(buf, "\t%s-%s", trainSetName.Ident(), testSetName.Ident())
+			fmt.Fprintf(buf, "\t%s-%s\t\t\t\t", trainSetName.Ident(), testSetName.Ident())
 		}
 		if len(expm.SubsetPairs) > 1 {
-			fmt.Fprint(buf, "\tMean")
-			fmt.Fprint(buf, "\tVar")
+			fmt.Fprintf(buf, "\tPerf\t\tTrainDur\t\tSolveDur\t\tSubstDur\t")
+		}
+	}
+	fmt.Fprintln(buf)
+
+	fmt.Fprint(buf, "Key")
+	for _, name := range fields {
+		fmt.Fprintf(buf, "\t%s", name)
+	}
+	for _, expmName := range expmNames {
+		expm := expms[expmName]
+		for _ = range expm.SubsetPairs {
+			fmt.Fprintf(buf, "\tPerf\tError\tTrainDur\tSolveDur\tSubstDur")
+		}
+		if len(expm.SubsetPairs) > 1 {
+			fmt.Fprintf(buf, "\tMean\tVar\tMean\tVar\tMean\tVar\tMean\tVar")
 		}
 	}
 	fmt.Fprintln(buf)
@@ -351,7 +381,8 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 		}
 		for _, expmName := range expmNames {
 			expm := expms[expmName]
-			var mean, stddev float64
+			// var mean, stddev float64
+			var results []*TestResult
 			var fail bool
 			for _, subsets := range expm.SubsetPairs {
 				resultParam := ResultsKey{
@@ -362,29 +393,76 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 					TestSet: Set{Dataset: expm.TestDataset, Subset: subsets.Test},
 				}
 				result := expmResults[expmName][resultParam.Ident()]
-				if result.Error != "" {
+				results = append(results, result)
+				if result.TrainReport.Error != "" {
 					fail = true
-					fmt.Fprintf(buf, "\t%s", result.Error)
+					fmt.Fprintf(buf, "\t\t%s\t\t\t", result.TrainReport.Error)
 				} else {
-					perf := result.Perf
-					mean += perf
-					stddev += perf * perf
-					fmt.Fprintf(buf, "\t%.6g", perf)
+					fmt.Fprintf(buf, "\t%.6g\t\t%.6g\t%.6g\t%.6g", result.Perf,
+						result.TrainReport.TotalDur.Seconds(),
+						result.TrainReport.SolveDur.Total.Seconds(),
+						result.TrainReport.SolveDur.Subst.Seconds(),
+					)
 				}
 			}
 
 			n := len(expm.SubsetPairs)
-			if n > 1 {
-				if fail {
-					fmt.Fprint(buf, "\t\t")
-				} else {
-					mean = mean / float64(n)
-					stddev = math.Sqrt(stddev/float64(n) - mean*mean)
-					fmt.Fprintf(buf, "\t%.6g\t%.6g", mean, stddev)
-				}
+			if n <= 1 {
+				// Do not report statistics.
+				continue
 			}
+			if fail {
+				// At least one error occurred.
+				fmt.Fprint(buf, "\t\t\t\t\t\t\t\t")
+				continue
+			}
+			stats := EstimateExperimentStats(results)
+			fmt.Fprintf(buf, "\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g",
+				stats.Perf.Mean, stats.Perf.Stddev,
+				stats.TrainDur.Mean, stats.TrainDur.Stddev,
+				stats.SolveDur.Mean, stats.SolveDur.Stddev,
+				stats.SubstDur.Mean, stats.SubstDur.Stddev,
+			)
 		}
 		fmt.Fprintln(buf)
 	}
 	return nil
 }
+
+type Stats struct {
+	Mean, Stddev float64
+}
+
+type ExperimentStats struct {
+	Perf, TrainDur, SolveDur, SubstDur Stats
+}
+
+func EstimateExperimentStats(results []*TestResult) *ExperimentStats {
+	var stats ExperimentStats
+	// TODO: Programmatize this! map[string]Stats or StatsAccumer?
+	for _, r := range results {
+		stats.Perf.Mean += r.Perf
+		stats.TrainDur.Mean += r.TrainReport.TotalDur.Seconds()
+		stats.SolveDur.Mean += r.TrainReport.SolveDur.Total.Seconds()
+		stats.SubstDur.Mean += r.TrainReport.SolveDur.Subst.Seconds()
+		stats.Perf.Stddev += square(r.Perf)
+		stats.TrainDur.Stddev += square(r.TrainReport.TotalDur.Seconds())
+		stats.SolveDur.Stddev += square(r.TrainReport.SolveDur.Total.Seconds())
+		stats.SubstDur.Stddev += square(r.TrainReport.SolveDur.Subst.Seconds())
+	}
+	stats.Perf.Mean /= float64(len(results))
+	stats.TrainDur.Mean /= float64(len(results))
+	stats.SolveDur.Mean /= float64(len(results))
+	stats.SubstDur.Mean /= float64(len(results))
+	stats.Perf.Stddev /= float64(len(results))
+	stats.TrainDur.Stddev /= float64(len(results))
+	stats.SolveDur.Stddev /= float64(len(results))
+	stats.SubstDur.Stddev /= float64(len(results))
+	stats.Perf.Stddev -= square(stats.Perf.Mean)
+	stats.TrainDur.Stddev -= square(stats.TrainDur.Mean)
+	stats.SolveDur.Stddev -= square(stats.SolveDur.Mean)
+	stats.SubstDur.Stddev -= square(stats.SubstDur.Mean)
+	return &stats
+}
+
+func square(x float64) float64 { return x * x }

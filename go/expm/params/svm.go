@@ -5,6 +5,7 @@ import (
 	"log"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
@@ -122,7 +123,7 @@ func (set *SVMTermSet) Enumerate() []SVMTerm {
 	return x
 }
 
-func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error) {
+func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*SolveResult, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -171,10 +172,12 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 		}
 	}
 
+	start := time.Now()
 	weights, err := svm.Train(vecset.NewUnion(x), y, c, t.Term.Terminate)
 	if err != nil {
 		return nil, err
 	}
+	dur := time.Since(start)
 
 	featsize := phi.Size(region.Size)
 	channels := phi.Channels()
@@ -192,5 +195,5 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 		},
 		PixelShape: region,
 	}
-	return &TrainResult{Tmpl: tmpl}, nil
+	return &SolveResult{Tmpl: tmpl, Dur: SolveDuration{Total: dur}}, nil
 }

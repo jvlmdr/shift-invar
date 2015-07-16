@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
@@ -12,13 +13,50 @@ import (
 // Trainer takes a training set which was extracted
 // using some configuration for training examples.
 type Trainer interface {
-	Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error)
+	Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*SolveResult, error)
 	Field(string) string
 }
 
 type TrainResult struct {
+	Tmpl   *detect.FeatTmpl
+	Report *TrainReport
+}
+
+// TrainReport contains metadata about the outcome of training.
+type TrainReport struct {
+	TotalDur time.Duration
+	SolveDur SolveDuration
+	Error    string
+}
+
+// SolveResult is the result of trying to solve the training problem.
+// These are bundled together to avoid having multiple returns to Trainer.Train(),
+// especially since some Trainers may not report a duration.
+type SolveResult struct {
 	Tmpl  *detect.FeatTmpl
+	Dur   SolveDuration
 	Error string
+}
+
+// Fail returns false iff Error is empty.
+func (solveResult *SolveResult) Fail() bool {
+	return solveResult.Error != ""
+}
+
+func NewTrainResult(solveResult *SolveResult, total time.Duration) *TrainResult {
+	if solveResult.Fail() {
+		return &TrainResult{
+			Report: &TrainReport{Error: solveResult.Error},
+		}
+	}
+	return &TrainResult{
+		Tmpl:   solveResult.Tmpl,
+		Report: &TrainReport{TotalDur: total, SolveDur: solveResult.Dur},
+	}
+}
+
+type SolveDuration struct {
+	Total, Subst time.Duration
 }
 
 // TrainerSet describes a set of Trainers of the same type.

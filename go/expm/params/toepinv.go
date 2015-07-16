@@ -68,7 +68,7 @@ func (set *ToepInvTrainerSet) Enumerate() []Trainer {
 	return ts
 }
 
-func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error) {
+func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*SolveResult, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		Scorer:     &slide.AffineScorer{Tmpl: weights},
 		PixelShape: region,
 	}
-	return &TrainResult{Tmpl: tmpl}, nil
+	return &SolveResult{Tmpl: tmpl}, nil
 }
 
 func approxInverse(cov *toepcov.Covar, size image.Point, bandOut int, lambda float64) (*toepcov.Covar, error) {

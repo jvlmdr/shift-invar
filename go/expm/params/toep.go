@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"time"
 
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/rimg64"
 	"github.com/jvlmdr/go-cv/slide"
+	"github.com/jvlmdr/lin-go/lapack"
 	"github.com/jvlmdr/shift-invar/go/circcov"
 	"github.com/jvlmdr/shift-invar/go/data"
 	"github.com/jvlmdr/shift-invar/go/toepcov"
@@ -62,7 +64,7 @@ func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
 	return ts
 }
 
-func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*TrainResult, error) {
+func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi feat.Image, statsFile string, region detect.PadRect, exampleOpts data.ExampleOpts, flip bool, interp resize.InterpolationFunction, searchOpts detect.MultiScaleOpts) (*SolveResult, error) {
 	posRects, err := data.PosExampleRects(posIms, dataset, searchOpts.Pad.Margin, region, exampleOpts)
 	if err != nil {
 		return nil, err
@@ -112,20 +114,53 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 	distr.Covar.AddLambdaI(t.Lambda)
 	// Subtract negative mean from positive example.
 	delta := toepcov.SubMean(meanPos, distr.Mean)
-	var weights *rimg64.Multi
+	var (
+		weights *rimg64.Multi
+		dur     SolveDuration
+	)
+	start := time.Now()
 	if t.Circ {
-		weights, err = circcov.InvMul(distr.Covar, delta)
+		weights, dur.Subst, err = solveCirculant(distr.Covar, delta)
 	} else {
-		weights, err = toepcov.InvMulDirect(distr.Covar, delta)
+		weights, dur.Subst, err = solveToeplitz(distr.Covar, delta)
 	}
 	if err != nil {
-		return &TrainResult{Error: err.Error()}, nil
+		return &SolveResult{Error: err.Error()}, nil
 	}
+	dur.Total = time.Since(start)
 
 	// Pack weights into image in detection template.
 	tmpl := &detect.FeatTmpl{
 		Scorer:     &slide.AffineScorer{Tmpl: weights},
 		PixelShape: region,
 	}
-	return &TrainResult{Tmpl: tmpl}, nil
+	return &SolveResult{Tmpl: tmpl, Dur: dur}, nil
+}
+
+func solveToeplitz(cov *toepcov.Covar, r *rimg64.Multi) (*rimg64.Multi, time.Duration, error) {
+	// Instantiate full covariance matrix.
+	s := cov.Matrix(r.Width, r.Height)
+	chol, err := lapack.Chol(s)
+	if err != nil {
+		return nil, 0, err
+	}
+	start := time.Now()
+	x, err := chol.Solve(r.Elems)
+	if err != nil {
+		return nil, 0, err
+	}
+	dur := time.Since(start)
+	w := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
+	return w, dur, nil
+}
+
+func solveCirculant(cov *toepcov.Covar, r *rimg64.Multi) (*rimg64.Multi, time.Duration, error) {
+	muler := new(circcov.InvMuler)
+	if err := muler.Init(cov, r.Width, r.Height); err != nil {
+		return nil, 0, err
+	}
+	start := time.Now()
+	w := muler.Mul(r)
+	dur := time.Since(start)
+	return w, dur, nil
 }
