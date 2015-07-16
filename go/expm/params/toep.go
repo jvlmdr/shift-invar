@@ -3,10 +3,13 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 	"reflect"
 	"time"
 
 	"github.com/gonum/floats"
+	"github.com/jvlmdr/go-cg/cg"
+	"github.com/jvlmdr/go-cg/pcg"
 	"github.com/jvlmdr/go-cv/detect"
 	"github.com/jvlmdr/go-cv/feat"
 	"github.com/jvlmdr/go-cv/rimg64"
@@ -20,7 +23,7 @@ import (
 
 type ToeplitzTrainer struct {
 	Lambda float64
-	Circ   bool
+	Method ToeplitzMethod
 	// Bandwidth parameter of Gaussian mask.
 	// Non-positive means no mask.
 	Sigma float64
@@ -30,6 +33,14 @@ type ToeplitzTrainer struct {
 }
 
 func (t *ToeplitzTrainer) Field(name string) string {
+	switch name {
+	case "Circ":
+		return fmt.Sprint(t.Method.Circ)
+	case "Algo":
+		return t.Method.Algo
+	case "Tol":
+		return fmt.Sprint(t.Method.Tol)
+	}
 	value := reflect.ValueOf(t).Elem().FieldByName(name)
 	if !value.IsValid() {
 		return ""
@@ -41,21 +52,50 @@ func (t *ToeplitzTrainer) Field(name string) string {
 type ToeplitzTrainerSet struct {
 	Lambda []float64
 	Circ   []bool
+	Algo   []string
+	Tol    []float64
 	Sigma  []float64
 	Band   []int
 }
 
+type ToeplitzMethod struct {
+	Circ bool
+	// Algorithm to use when Circ is false.
+	// Can be "chol", "cg" or "pcg".
+	Algo string
+	// Tolerance for when Algo is "cg" or "pcg".
+	Tol float64
+}
+
 func (set *ToeplitzTrainerSet) Fields() []string {
-	return []string{"Lambda", "Circ", "Sigma", "Band"}
+	return []string{"Lambda", "Circ", "Sigma", "Band", "Algo", "Tol"}
 }
 
 func (set *ToeplitzTrainerSet) Enumerate() []Trainer {
+	var methods []ToeplitzMethod
+	for _, circ := range set.Circ {
+		if circ {
+			methods = append(methods, ToeplitzMethod{Circ: true})
+			continue
+		}
+		for _, algo := range set.Algo {
+			switch algo {
+			case "cg", "pcg":
+				for _, tol := range set.Tol {
+					methods = append(methods, ToeplitzMethod{Algo: algo, Tol: tol})
+				}
+			default:
+				methods = append(methods, ToeplitzMethod{Algo: algo})
+			}
+		}
+	}
+
 	var ts []Trainer
 	for _, lambda := range set.Lambda {
-		for _, circ := range set.Circ {
+		for _, method := range methods {
 			for _, sigma := range set.Sigma {
 				for _, band := range set.Band {
-					t := &ToeplitzTrainer{Lambda: lambda, Circ: circ, Sigma: sigma, Band: band}
+					t := &ToeplitzTrainer{Lambda: lambda, Method: method, Sigma: sigma, Band: band}
 					ts = append(ts, t)
 				}
 			}
@@ -119,10 +159,10 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 		dur     SolveDuration
 	)
 	start := time.Now()
-	if t.Circ {
+	if t.Method.Circ {
 		weights, dur.Subst, err = solveCirculant(distr.Covar, delta)
 	} else {
-		weights, dur.Subst, err = solveToeplitz(distr.Covar, delta)
+		weights, dur.Subst, err = solveToeplitz(distr.Covar, delta, t.Method.Algo, t.Method.Tol)
 	}
 	if err != nil {
 		return &SolveResult{Error: err.Error()}, nil
@@ -137,21 +177,72 @@ func (t *ToeplitzTrainer) Train(posIms, negIms []string, dataset data.ImageSet, 
 	return &SolveResult{Tmpl: tmpl, Dur: dur}, nil
 }
 
-func solveToeplitz(cov *toepcov.Covar, r *rimg64.Multi) (*rimg64.Multi, time.Duration, error) {
-	// Instantiate full covariance matrix.
-	s := cov.Matrix(r.Width, r.Height)
-	chol, err := lapack.Chol(s)
-	if err != nil {
-		return nil, 0, err
+func solveToeplitz(cov *toepcov.Covar, r *rimg64.Multi, algo string, tol float64) (*rimg64.Multi, time.Duration, error) {
+	switch algo {
+	case "chol":
+		// Instantiate full covariance matrix.
+		s := cov.Matrix(r.Width, r.Height)
+		chol, err := lapack.Chol(s)
+		if err != nil {
+			return nil, 0, err
+		}
+		start := time.Now()
+		x, err := chol.Solve(r.Elems)
+		if err != nil {
+			return nil, 0, err
+		}
+		dur := time.Since(start)
+		w := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
+		return w, dur, nil
+
+	case "cg":
+		var muler toepcov.MulerFFT
+		muler.Init(cov, r.Width, r.Height)
+		a := func(x []float64) []float64 {
+			f := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
+			g := muler.Mul(f)
+			return g.Elems
+		}
+		guess := make([]float64, r.Width*r.Height*r.Channels)
+		start := time.Now()
+		x, err := cg.Solve(a, r.Elems, guess, tol, 0, os.Stderr)
+		if err != nil {
+			return nil, 0, err
+		}
+		dur := time.Since(start)
+		w := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
+		return w, dur, nil
+
+	case "pcg":
+		var muler toepcov.MulerFFT
+		muler.Init(cov, r.Width, r.Height)
+		a := func(x []float64) []float64 {
+			f := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
+			g := muler.Mul(f)
+			return g.Elems
+		}
+		var invmuler circcov.InvMuler
+		if err := invmuler.Init(cov, r.Width, r.Height); err != nil {
+			return nil, 0, err
+		}
+		cinv := func(x []float64) []float64 {
+			f := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
+			g := invmuler.Mul(f)
+			return g.Elems
+		}
+		guess := make([]float64, r.Width*r.Height*r.Channels)
+		start := time.Now()
+		x, err := pcg.Solve(a, r.Elems, cinv, guess, tol, 0, os.Stderr)
+		if err != nil {
+			return nil, 0, err
+		}
+		dur := time.Since(start)
+		w := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
+		return w, dur, nil
+
+	default:
+		panic(fmt.Sprintf("unknown algorithm: %q", algo))
 	}
-	start := time.Now()
-	x, err := chol.Solve(r.Elems)
-	if err != nil {
-		return nil, 0, err
-	}
-	dur := time.Since(start)
-	w := &rimg64.Multi{x, r.Width, r.Height, r.Channels}
-	return w, dur, nil
 }
 
 func solveCirculant(cov *toepcov.Covar, r *rimg64.Multi) (*rimg64.Multi, time.Duration, error) {
