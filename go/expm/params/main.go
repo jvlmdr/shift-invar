@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strconv"
 
@@ -418,10 +419,10 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 			}
 			stats := EstimateExperimentStats(results)
 			fmt.Fprintf(buf, "\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g\t%.6g",
-				stats.Perf.Mean, stats.Perf.Stddev,
-				stats.TrainDur.Mean, stats.TrainDur.Stddev,
-				stats.SolveDur.Mean, stats.SolveDur.Stddev,
-				stats.SubstDur.Mean, stats.SubstDur.Stddev,
+				stats.Perf.Mean, stats.Perf.Var,
+				stats.TrainDur.Mean, stats.TrainDur.Var,
+				stats.SolveDur.Mean, stats.SolveDur.Var,
+				stats.SubstDur.Mean, stats.SubstDur.Var,
 			)
 		}
 		fmt.Fprintln(buf)
@@ -430,7 +431,7 @@ func printResults(paramset *ParamSet, params []Param, expmNames []string, expms 
 }
 
 type Stats struct {
-	Mean, Stddev float64
+	Mean, Var float64
 }
 
 type ExperimentStats struct {
@@ -445,23 +446,23 @@ func EstimateExperimentStats(results []*TestResult) *ExperimentStats {
 		stats.TrainDur.Mean += r.TrainReport.TotalDur.Seconds()
 		stats.SolveDur.Mean += r.TrainReport.SolveDur.Total.Seconds()
 		stats.SubstDur.Mean += r.TrainReport.SolveDur.Subst.Seconds()
-		stats.Perf.Stddev += square(r.Perf)
-		stats.TrainDur.Stddev += square(r.TrainReport.TotalDur.Seconds())
-		stats.SolveDur.Stddev += square(r.TrainReport.SolveDur.Total.Seconds())
-		stats.SubstDur.Stddev += square(r.TrainReport.SolveDur.Subst.Seconds())
+		stats.Perf.Var += square(r.Perf)
+		stats.TrainDur.Var += square(r.TrainReport.TotalDur.Seconds())
+		stats.SolveDur.Var += square(r.TrainReport.SolveDur.Total.Seconds())
+		stats.SubstDur.Var += square(r.TrainReport.SolveDur.Subst.Seconds())
 	}
 	stats.Perf.Mean /= float64(len(results))
 	stats.TrainDur.Mean /= float64(len(results))
 	stats.SolveDur.Mean /= float64(len(results))
 	stats.SubstDur.Mean /= float64(len(results))
-	stats.Perf.Stddev /= float64(len(results))
-	stats.TrainDur.Stddev /= float64(len(results))
-	stats.SolveDur.Stddev /= float64(len(results))
-	stats.SubstDur.Stddev /= float64(len(results))
-	stats.Perf.Stddev -= square(stats.Perf.Mean)
-	stats.TrainDur.Stddev -= square(stats.TrainDur.Mean)
-	stats.SolveDur.Stddev -= square(stats.SolveDur.Mean)
-	stats.SubstDur.Stddev -= square(stats.SubstDur.Mean)
+	stats.Perf.Var /= float64(len(results))
+	stats.TrainDur.Var /= float64(len(results))
+	stats.SolveDur.Var /= float64(len(results))
+	stats.SubstDur.Var /= float64(len(results))
+	stats.Perf.Var = math.Sqrt(stats.Perf.Var - square(stats.Perf.Mean))
+	stats.TrainDur.Var = math.Sqrt(stats.TrainDur.Var - square(stats.TrainDur.Mean))
+	stats.SolveDur.Var = math.Sqrt(stats.SolveDur.Var - square(stats.SolveDur.Mean))
+	stats.SubstDur.Var = math.Sqrt(stats.SubstDur.Var - square(stats.SubstDur.Mean))
 	return &stats
 }
 

@@ -81,8 +81,8 @@ func flipImageX(src image.Image) image.Image {
 // WindowSets computes the features of each image and returns
 // the set of all windows in the feature image.
 // Does not check dataset.CanTrain or CanTest.
-func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, shape detect.PadRect, interp resize.InterpolationFunction) ([]imset.Set, error) {
-	featSize := phi.Size(shape.Size)
+// Window size and stride are specified in feature pixels.
+func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, size image.Point, stride int, interp resize.InterpolationFunction) ([]imset.Set, error) {
 	var sets []imset.Set
 	for _, name := range ims {
 		log.Println("load image:", name)
@@ -102,9 +102,9 @@ func WindowSets(ims []string, dataset ImageSet, phi feat.Image, pad feat.Pad, sh
 		durFeat := time.Since(t)
 		set := new(imset.WindowSet)
 		set.Image = x
-		set.Size = featSize
-		for u := 0; u < x.Width-featSize.X+1; u++ {
-			for v := 0; v < x.Height-featSize.Y+1; v++ {
+		set.Size = size
+		for u := 0; u < x.Width-size.X+1; u += stride {
+			for v := 0; v < x.Height-size.Y+1; v += stride {
 				set.Windows = append(set.Windows, image.Pt(u, v))
 			}
 		}

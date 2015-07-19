@@ -19,10 +19,11 @@ import (
 )
 
 type SVMTrainer struct {
-	Bias   float64
-	Lambda float64
-	Gamma  float64
-	Term   SVMTerm
+	Bias         float64
+	Lambda       float64
+	Gamma        float64
+	WindowStride int
+	Term         SVMTerm
 }
 
 func (t *SVMTrainer) Field(name string) string {
@@ -38,14 +39,15 @@ func (t *SVMTrainer) Field(name string) string {
 
 // SVMTrainerSet provides a mechanism to specify a set of SVMTrainers.
 type SVMTrainerSet struct {
-	Bias   float64
-	Lambda []float64
-	Gamma  []float64
-	Term   []SVMTermSet
+	Bias         float64
+	Lambda       []float64
+	Gamma        []float64
+	WindowStride []int
+	Term         []SVMTermSet
 }
 
 func (set *SVMTrainerSet) Fields() []string {
-	return []string{"Lambda", "Gamma", "Term.Epochs", "Term.RelGap", "Term.AbsGap"}
+	return []string{"Lambda", "Gamma", "WindowStride", "Term.Epochs", "Term.RelGap", "Term.AbsGap"}
 }
 
 func (set *SVMTrainerSet) Enumerate() []Trainer {
@@ -57,14 +59,17 @@ func (set *SVMTrainerSet) Enumerate() []Trainer {
 	var ts []Trainer
 	for _, lambda := range set.Lambda {
 		for _, gamma := range set.Gamma {
-			for _, term := range terms {
-				t := &SVMTrainer{
-					Bias:   set.Bias,
-					Lambda: lambda,
-					Gamma:  gamma,
-					Term:   term,
+			for _, stride := range set.WindowStride {
+				for _, term := range terms {
+					t := &SVMTrainer{
+						Bias:         set.Bias,
+						Lambda:       lambda,
+						Gamma:        gamma,
+						WindowStride: stride,
+						Term:         term,
+					}
+					ts = append(ts, t)
 				}
-				ts = append(ts, t)
 			}
 		}
 	}
@@ -136,8 +141,14 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 	if len(pos) == 0 {
 		return nil, fmt.Errorf("empty positive set")
 	}
+
+	// Find minimum stride (in feature pixels) such that
+	// featStride * rate >= minPixStride
+	// featStride >= minPixStride / rate
+	// featStride = ceil(minPixStride / rate)
+	stride := ceilDiv(t.WindowStride, phi.Rate())
 	// Negative examples are represented as indices into an image.
-	neg, err := data.WindowSets(negIms, dataset, phi, searchOpts.Pad, region, interp)
+	neg, err := data.WindowSets(negIms, dataset, phi, searchOpts.Pad, phi.Size(region.Size), stride, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -196,4 +207,14 @@ func (t *SVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, phi f
 		PixelShape: region,
 	}
 	return &SolveResult{Tmpl: tmpl, Dur: SolveDuration{Total: dur}}, nil
+}
+
+func ceilDiv(a, b int) int {
+	if a < 0 {
+		panic("numerator is negative")
+	}
+	if b <= 0 {
+		panic("denominator is non-positive")
+	}
+	return (a + b - 1) / b
 }

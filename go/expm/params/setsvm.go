@@ -135,7 +135,7 @@ func (t *SetSVMTrainer) Train(posIms, negIms []string, dataset data.ImageSet, ph
 		return nil, fmt.Errorf("empty positive set")
 	}
 	// Negative examples are represented as indices into an image.
-	neg, err := data.WindowSets(negIms, dataset, phi, searchOpts.Pad, region, interp)
+	neg, err := data.WindowSets(negIms, dataset, phi, searchOpts.Pad, phi.Size(region.Size), 1, interp)
 	if err != nil {
 		return nil, err
 	}
