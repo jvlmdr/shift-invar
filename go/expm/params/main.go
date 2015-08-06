@@ -47,6 +47,7 @@ func main() {
 		localMax   = flag.Bool("local-max", true, "Suppress detections which are less than a neighbor?")
 		minMatch   = flag.Float64("min-match", 0.5, "Minimum intersection-over-union to validate a true positive")
 		minIgnore  = flag.Float64("min-ignore", 0.5, "Minimum that a region can be covered to be ignored")
+		doTest     = flag.Bool("do-test", false, "Run experiments to measure performance on test set?")
 		doTestVar  = flag.Bool("do-test-var", false, "Run experiments to measure variance of performance on test set?")
 	)
 	flag.Parse()
@@ -161,7 +162,10 @@ func main() {
 		"full":      full,
 		"test-var":  testVar,
 	}
-	expmNames := []string{"cross-val", "full"}
+	expmNames := []string{"cross-val"}
+	if *doTest {
+		expmNames = append(expmNames, "full")
+	}
 	if *doTestVar {
 		expmNames = append(expmNames, "test-var")
 	}
