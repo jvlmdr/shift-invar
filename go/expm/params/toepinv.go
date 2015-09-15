@@ -5,6 +5,7 @@ import (
 	"image"
 	"log"
 	"math"
+	"time"
 
 	"github.com/gonum/floats"
 	"github.com/jvlmdr/go-cv/detect"
@@ -21,17 +22,17 @@ import (
 
 type ToepInvTrainer struct {
 	Lambda float64
-	Len    int
-	Sigma  float64
-	Crop   int
+	Res    int     // Resolution of the approximation (pixels).
+	Sigma  float64 // Size of Gaussian covar mask (pixels).
+	Crop   int     // Margin to add and then remove (pixels).
 }
 
 func (t *ToepInvTrainer) Field(name string) string {
 	switch name {
 	case "Lambda":
 		return fmt.Sprint(t.Lambda)
-	case "Len":
-		return fmt.Sprint(t.Len)
+	case "Res":
+		return fmt.Sprint(t.Res)
 	case "Sigma":
 		return fmt.Sprint(t.Sigma)
 	case "Crop":
@@ -44,22 +45,22 @@ func (t *ToepInvTrainer) Field(name string) string {
 // ToepInvTrainerSet specifies a set of ToepInvTrainers.
 type ToepInvTrainerSet struct {
 	Lambda []float64
-	Len    []int
+	Res    []int
 	Sigma  []float64
 	Crop   []int
 }
 
 func (set *ToepInvTrainerSet) Fields() []string {
-	return []string{"Lambda", "Len", "Sigma", "Crop"}
+	return []string{"Lambda", "Res", "Sigma", "Crop"}
 }
 
 func (set *ToepInvTrainerSet) Enumerate() []Trainer {
 	var ts []Trainer
 	for _, lambda := range set.Lambda {
-		for _, n := range set.Len {
+		for _, res := range set.Res {
 			for _, sigma := range set.Sigma {
 				for _, crop := range set.Crop {
-					t := &ToepInvTrainer{Lambda: lambda, Len: n, Sigma: sigma, Crop: crop}
+					t := &ToepInvTrainer{Lambda: lambda, Res: res, Sigma: sigma, Crop: crop}
 					ts = append(ts, t)
 				}
 			}
@@ -73,8 +74,22 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	if err != nil {
 		return nil, err
 	}
+	featCrop := t.Crop / phi.Rate()
+	pixCrop := featCrop * phi.Rate() // <= t.Crop
+	// Dilate all rectangles.
+	dilatedRegion := region
+	if pixCrop > 0 {
+		dilatedRegion = insetPadRect(region, -pixCrop)
+		for im := range posRects {
+			var rs []image.Rectangle
+			for _, r := range posRects[im] {
+				rs = append(rs, r.Inset(-pixCrop))
+			}
+			posRects[im] = rs
+		}
+	}
 	// Extract positive examples.
-	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, region, flip, interp)
+	pos, err := data.Examples(posIms, posRects, dataset, phi, searchOpts.Pad.Extend, dilatedRegion, flip, interp)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +98,7 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	}
 
 	// Compute mean of positive examples.
-	featsize, channels := phi.Size(region.Size), phi.Channels()
+	featsize, channels := phi.Size(dilatedRegion.Size), phi.Channels()
 	meanPos := rimg64.NewMulti(featsize.X, featsize.Y, channels)
 	for _, x := range pos {
 		floats.Add(meanPos.Elems, x.Elems)
@@ -95,6 +110,7 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	if err != nil {
 		return nil, err
 	}
+
 	// Take subset with enough elements.
 	var minReqCount int64 = 10000
 	var b int
@@ -113,22 +129,27 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	// Obtain covariance and mean from sums.
 	distr := toepcov.Normalize(total, true)
 	covar := distr.Covar.CloneBandwidth(maxBand)
-	for u := -maxBand; u <= maxBand; u++ {
-		for v := -maxBand; v <= maxBand; v++ {
-			x, y := float64(u), float64(v)
-			alpha := math.Exp(-(x*x + y*y) / (2 * t.Sigma * t.Sigma))
-			for p := 0; p < covar.Channels; p++ {
-				for q := 0; q < covar.Channels; q++ {
-					covar.Set(u, v, p, q, alpha*covar.At(u, v, p, q))
+	if t.Sigma > 0 {
+		sigma := t.Sigma / float64(phi.Rate())
+		for u := -maxBand; u <= maxBand; u++ {
+			for v := -maxBand; v <= maxBand; v++ {
+				x, y := float64(u), float64(v)
+				alpha := math.Exp(-(x*x + y*y) / (2 * sigma * sigma))
+				for p := 0; p < covar.Channels; p++ {
+					for q := 0; q < covar.Channels; q++ {
+						covar.Set(u, v, p, q, alpha*covar.At(u, v, p, q))
+					}
 				}
 			}
 		}
 	}
 
+	startTotal := time.Now()
+
 	// Obtain approximate inverse.
-	size := image.Pt(t.Len, t.Len)
-	log.Printf("size %v, lambda %v, sigma %v, crop %v", size, t.Lambda, t.Sigma, t.Crop)
-	prec, err := approxInverse(covar, size, covar.Bandwidth, t.Lambda)
+	res := t.Res / phi.Rate()
+	outBand := max(featsize.X, featsize.Y) - 1
+	prec, err := invertApprox(covar, image.Pt(res, res), outBand, t.Lambda)
 	if err != nil {
 		return nil, err
 	}
@@ -137,17 +158,12 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 	delta := toepcov.SubMean(meanPos, distr.Mean)
 	weights := toepcov.MulFFT(prec, delta)
 
+	startSubst := time.Now()
+
 	// Set boundary to zero.
-	interior := image.Rect(0, 0, weights.Width, weights.Height).Inset(t.Crop)
-	for u := 0; u < weights.Width; u++ {
-		for v := 0; v < weights.Height; v++ {
-			if image.Pt(u, v).In(interior) {
-				continue
-			}
-			for p := 0; p < weights.Channels; p++ {
-				weights.Set(u, v, p, 0)
-			}
-		}
+	if pixCrop > 0 {
+		interior := image.Rect(0, 0, weights.Width, weights.Height).Inset(featCrop)
+		weights = weights.SubImage(interior)
 	}
 
 	// Pack weights into image in detection template.
@@ -155,18 +171,31 @@ func (t *ToepInvTrainer) Train(posIms, negIms []string, dataset data.ImageSet, p
 		Scorer:     &slide.AffineScorer{Tmpl: weights},
 		PixelShape: region,
 	}
-	return &SolveResult{Tmpl: tmpl}, nil
+	dur := SolveDuration{
+		Total: time.Since(startTotal),
+		Subst: time.Since(startSubst),
+	}
+	return &SolveResult{Tmpl: tmpl, Dur: dur}, nil
 }
 
-func approxInverse(cov *toepcov.Covar, size image.Point, bandOut int, lambda float64) (*toepcov.Covar, error) {
+func insetPadRect(r detect.PadRect, crop int) detect.PadRect {
+	d := image.Pt(crop, crop)
+	return detect.PadRect{
+		Size: r.Size.Sub(d.Mul(2)),
+		Int:  r.Int.Sub(d),
+	}
+}
+
+// size and bandOut are in feature pixels.
+func invertApprox(cov *toepcov.Covar, size image.Point, bandOut int, lambda float64) (*toepcov.Covar, error) {
 	bandIn := cov.Bandwidth
 	if 2*bandIn+1 > size.X || 2*bandIn+1 > size.Y {
-		// TODO: Handle this better.
-		panic("input bandwidth greater than size")
+		//	panic("input bandwidth greater than size")
+		bandIn = min(size.X, size.Y) / 2
 	}
 	if 2*bandOut+1 > size.X || 2*bandOut+1 > size.Y {
-		// TODO: Handle this better.
-		panic("output bandwidth greater than size")
+		//	panic("output bandwidth greater than size")
+		bandOut = min(size.X, size.Y) / 2
 	}
 	num := float64(size.X * size.Y)
 	// Take Fourier transform of each channel pair.
@@ -206,6 +235,7 @@ func approxInverse(cov *toepcov.Covar, size image.Point, bandOut int, lambda flo
 			}
 			for i := range vals {
 				if vals[i] < 0 {
+					//log.Printf("threshold: u %d, v %d, i %d", u, v, i)
 					vals[i] = 0
 				}
 				vals[i] += lambda
